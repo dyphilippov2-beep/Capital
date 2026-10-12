@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Капитал">
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Мой капитал</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one column, summary card on top, sticky bottom tab bar, lists of issuers/positions */
+:root{
+  --bg:#f3f1ec; --surface:#ffffff; --surface-2:#ebe8e1; --line:#ddd9cf;
+  --fg:#1b1c19; --muted:#6f6c63; --accent:#8a6a1f; --accent-soft:#efe4c8;
+  --up:#1f7a45; --down:#b3261e;
+  --c-stock:#2f5d8a; --c-bond:#6b4fa0; --c-metal:#b08a2e; --c-mm:#2c8a7a; --c-fund:#c06a3a; --c-cash:#7d8471;
+  --font:"Onest",-apple-system,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121311; --surface:#1c1d1a; --surface-2:#262722; --line:#30312c;
+  --fg:#ecebe6; --muted:#9a978d; --accent:#d8b45a; --accent-soft:#3a3322;
+  --up:#4cc27c; --down:#ff6b5e;
+  --c-stock:#6a9fd4; --c-bond:#a58ad8; --c-metal:#d8b45a; --c-mm:#5cc4b1; --c-fund:#e3925e; --c-cash:#a7ad9a;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#121311; --surface:#1c1d1a; --surface-2:#262722; --line:#30312c;
+  --fg:#ecebe6; --muted:#9a978d; --accent:#d8b45a; --accent-soft:#3a3322;
+  --up:#4cc27c; --down:#ff6b5e;
+  --c-stock:#6a9fd4; --c-bond:#a58ad8; --c-metal:#d8b45a; --c-mm:#5cc4b1; --c-fund:#e3925e; --c-cash:#a7ad9a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;
+  padding-top:env(safe-area-inset-top,0px)}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-block:12px 110px}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.up{color:var(--up)} .down{color:var(--down)} .muted{color:var(--muted)}
+
+/* summary */
+.summary{display:grid;gap:10px;padding-block:8px 18px}
+.summary .label{font-size:13px;color:var(--muted);letter-spacing:.02em;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.total{font-size:clamp(30px,9vw,40px);font-weight:700;letter-spacing:-.02em;line-height:1.05}
+.day{font-size:14px;font-weight:500}
+.refresh{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.refresh:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.refresh.busy svg{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.refresh.busy svg{animation:none}}
+.bar{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--surface-2);gap:2px}
+.bar i{display:block;height:100%}
+.legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px;font-size:13px}
+.legend div{display:flex;align-items:center;gap:8px;min-width:0}
+.legend b{margin-left:auto;font-weight:600}
+.dot{width:9px;height:9px;border-radius:3px;flex:none}
+.status{font-size:12px;color:var(--muted)}
+.status.err{color:var(--down)}
+
+/* lists */
+h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:22px 0 8px}
+.list{background:var(--surface);border-radius:var(--r);border:1px solid var(--line);overflow:hidden}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:12px 14px;border-top:1px solid var(--line);align-items:baseline;width:100%;text-align:left;background:none;border-left:0;border-right:0;border-bottom:0}
+.row:first-child{border-top:0}
+button.row{cursor:pointer}
+.row .name{font-weight:600;min-width:0;display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}
+.row .val{font-weight:600;text-align:right}
+.row .sub{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .rt{font-size:13px;text-align:right}
+.share{display:block;grid-column:1/-1;height:3px;border-radius:2px;background:var(--surface-2);margin-top:6px;overflow:hidden}
+.share i{display:block;height:100%}
+.kids{background:var(--surface-2);padding:2px 0}
+.kids .row{padding:9px 14px 9px 30px;border-top:1px solid var(--line)}
+.kids .row .name{font-weight:500;font-size:14px}
+.kids .row .val{font-weight:500;font-size:14px}
+.pct{font-size:12px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--accent-soft);color:var(--fg)}
+.tag{font-size:11px;font-weight:600;letter-spacing:.04em;padding:1px 6px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+
+/* class chips */
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-inline:-16px;padding-inline:16px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 12px;text-align:left;cursor:pointer;min-width:118px}
+.chip small{display:block;font-size:12px;color:var(--muted)}
+.chip strong{display:flex;align-items:center;gap:6px;font-size:14px}
+.chip[aria-pressed="true"]{border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
+
+/* settings */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:12px}
+label.f{display:grid;gap:5px;font-size:13px;color:var(--muted)}
+.f input,.f select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:16px;width:100%;min-width:0}
+textarea{min-height:120px;font-size:12px;font-family:ui-monospace,Menlo,monospace}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border:0;border-radius:10px;padding:10px 14px;background:var(--fg);color:var(--bg);font-weight:600;cursor:pointer}
+.btn.ghost{background:var(--surface-2);color:var(--fg)}
+.btn.danger{background:none;color:var(--down);padding-inline:4px}
+.editrow{display:grid;grid-template-columns:1fr 110px auto;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid var(--line)}
+.editrow:first-child{border-top:0}
+.editrow .n{min-width:0;font-size:14px}
+.editrow .n small{display:block;color:var(--muted);font-size:12px}
+.editrow input{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:16px;width:100%;text-align:right}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:380px){.grid2{grid-template-columns:1fr}}
+.note{font-size:13px;color:var(--muted);margin:0}
+.empty{padding:28px 18px;text-align:center;display:grid;gap:12px;justify-items:center}
+
+/* news */
+.news a{color:inherit;text-decoration:none}
+.links{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.links a{font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--bg)}
+
+/* tabbar */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--surface) 92%,transparent);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-top:1px solid var(--line);
+  padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center}
+nav.tabs div{display:grid;grid-template-columns:repeat(4,1fr);width:100%;max-width:560px}
+nav.tabs button{background:none;border:0;padding:6px 2px;display:grid;justify-items:center;gap:3px;font-size:11px;color:var(--muted);cursor:pointer}
+nav.tabs button[aria-selected="true"]{color:var(--fg);font-weight:600}
+nav.tabs svg{width:22px;height:22px}
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:13px;max-width:90vw}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="summary" aria-live="polite">
+    <div class="label"><span>Весь капитал</span>
+      <button class="refresh" id="refreshBtn" type="button" aria-label="Обновить цены">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>Обновить</button></div>
+    <div class="total num" id="total">—</div>
+    <div class="day num" id="day"></div>
+    <div class="bar" id="bar"></div>
+    <div class="legend" id="legend"></div>
+    <div class="status" id="status">Загружаю цены Мосбиржи…</div>
+  </section>
+  <main id="view"></main>
+</div>
+
+<nav class="tabs" aria-label="Разделы"><div role="tablist">
+  <button role="tab" data-tab="issuers" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12l6 6"/></svg>Эмитенты</button>
+  <button role="tab" data-tab="classes" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Активы</button>
+  <button role="tab" data-tab="news" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 9h8M8 12.5h8M8 16h5"/></svg>Новости</button>
+  <button role="tab" data-tab="more" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Ещё</button>
+</div></nav>
+
+<script>
+"use strict";
+const ISS = "https://iss.moex.com/iss";
+const KEY = "mycap.v1", PKEY = "mycap.prices.v1", TKEY = "mycap.tab";
+const CLS = {
+  stock:{name:"Акции", c:"--c-stock"},
+  bond:{name:"Облигации", c:"--c-bond"},
+  metal:{name:"Металлы", c:"--c-metal"},
+  mm:{name:"Денежный рынок", c:"--c-mm"},
+  fund:{name:"Фонды", c:"--c-fund"},
+  cash:{name:"Кэш", c:"--c-cash"}
+};
+const ORDER = ["stock","bond","metal","mm","fund","cash"];
+
+const store = {
+  get(k){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let data = store.get(KEY) || {version:1, positions:[], cash:{broker:0, hand:0}, coinPct:100};
+let prices = store.get(PKEY) || {at:null, q:{}};
+let tab = store.get(TKEY) || "issuers";
+let selCls = "stock";
+let open = new Set();
+
+const fmt0 = new Intl.NumberFormat("ru-RU",{maximumFractionDigits:0});
+const fmt2 = new Intl.NumberFormat("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtP = new Intl.NumberFormat("ru-RU",{minimumFractionDigits:1,maximumFractionDigits:1});
+const rub = v => fmt0.format(Math.round(v)) + " ₽";
+const pct = v => fmtP.format(v) + "%";
+const fmtPrice = v => v >= 100 ? fmt2.format(v) : new Intl.NumberFormat("ru-RU",{maximumFractionDigits:4}).format(v);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* Where each instrument trades on the Moscow Exchange */
+function route(p){
+  if (p.board) return p.board;
+  if (p.cls === "metal") return "currency/selt/CETS";
+  if (p.cls === "bond") return /^SU\d/.test(p.secid) ? "stock/bonds/TQOB" : "stock/bonds/TQCB";
+  if (p.cls === "fund" || p.cls === "mm") return "stock/shares/TQTF";
+  return "stock/shares/TQBR";
+}
+
+function block(json, name){
+  const b = json[name]; if (!b) return {};
+  const out = {};
+  for (const row of b.data){
+    const o = {}; b.columns.forEach((c,i)=>o[c]=row[i]);
+    out[o.SECID] = o;
+  }
+  return out;
+}
+const first = (...v) => { for (const x of v) if (typeof x === "number" && x > 0) return x; return null; };
+
+async function fetchBoard(path, ids){
+  const [engine, market, board] = path.split("/");
+  const url = `${ISS}/engines/${engine}/markets/${market}/boards/${board}/securities.json?iss.meta=off&iss.only=securities,marketdata&securities=${ids.map(encodeURIComponent).join(",")}`;
+  const r = await fetch(url, {cache:"no-store"});
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  const sec = block(j,"securities"), md = block(j,"marketdata");
+  const res = {};
+  for (const id of ids){
+    const s = sec[id] || {}, m = md[id] || {};
+    const isBond = engine === "stock" && market === "bonds";
+    const last = first(m.LAST, m.LCURRENTPRICE, m.MARKETPRICE, m.WAPRICE, m.MARKETPRICETODAY, s.PREVPRICE, s.PREVLEGALCLOSEPRICE, s.PREVWAPRICE);
+    const prev = first(s.PREVPRICE, s.PREVLEGALCLOSEPRICE, s.PREVWAPRICE, last);
+    if (!last) continue;
+    if (isBond){
+      const face = first(s.FACEVALUE) || 1000, acc = s.ACCRUEDINT || 0;
+      res[id] = {unit: last/100*face + acc, prev: prev/100*face + acc, quote: last, quoteUnit:"%"};
+    } else {
+      res[id] = {unit:last, prev, quote:last, quoteUnit:"₽"};
+    }
+  }
+  return res;
+}
+
+async function refresh(){
+  const btn = document.getElementById("refreshBtn");
+  if (btn.classList.contains("busy") || !data.positions.length) { render(); return; }
+  btn.classList.add("busy");
+  setStatus("Обновляю цены Мосбиржи…");
+  const groups = {};
+  for (const p of data.positions){ const r = route(p); (groups[r] ||= new Set()).add(p.secid); }
+  const q = {...prices.q}; let ok = 0, fail = 0;
+  await Promise.all(Object.entries(groups).map(async ([path, set]) => {
+    try { Object.assign(q, await fetchBoard(path, [...set])); ok++; }
+    catch(e){ fail++; }
+  }));
+  btn.classList.remove("busy");
+  if (ok){ prices = {at: Date.now(), q}; store.set(PKEY, prices); }
+  render();
+  if (fail && !ok) setStatus("Нет связи с Мосбиржей. Показаны цены на " + when(prices.at) + ".", true);
+  else if (fail) setStatus("Часть цен не обновилась. Обновлено " + when(prices.at) + ".", true);
+}
+function when(t){
+  if (!t) return "—";
+  const d = new Date(t), now = new Date();
+  const hm = d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});
+  return d.toDateString() === now.toDateString() ? "сегодня в " + hm : d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"}) + " в " + hm;
+}
+function setStatus(t, err){ const s = document.getElementById("status"); s.textContent = t; s.classList.toggle("err", !!err); }
+
+/* Value every holding */
+function compute(){
+  const items = [];
+  for (const p of data.positions){
+    const q = prices.q[p.secid];
+    let mult = p.grams ? p.grams : 1;
+    if (p.physical) mult *= (data.coinPct ?? 100) / 100;
+    const value = q ? p.qty * q.unit * mult : 0;
+    const prevV = q ? p.qty * q.prev * mult : 0;
+    items.push({...p, value, change: value - prevV, priced: !!q, q});
+  }
+  const cash = data.cash || {};
+  if (cash.broker) items.push({secid:"CASH_BROKER", name:"Рубли на брокерских счетах", issuer:"Кэш", cls:"cash", qty:null, value:+cash.broker, change:0, priced:true});
+  if (cash.hand) items.push({secid:"CASH_HAND", name:"Наличные", issuer:"Кэш", cls:"cash", qty:null, value:+cash.hand, change:0, priced:true});
+  const total = items.reduce((s,i)=>s+i.value,0);
+  const change = items.reduce((s,i)=>s+i.change,0);
+  return {items, total, change};
+}
+
+function changeHtml(ch, base){
+  if (!ch || !base) return `<span class="muted">0%</span>`;
+  const p = ch / (base - ch) * 100;
+  const cls = ch > 0 ? "up" : "down";
+  return `<span class="${cls} num">${ch>0?"+":"−"}${rub(Math.abs(ch))} · ${pct(Math.abs(p))}</span>`;
+}
+
+function renderSummary(c){
+  document.getElementById("total").textContent = data.positions.length ? rub(c.total) : "—";
+  document.getElementById("day").innerHTML = c.total ? `${changeHtml(c.change, c.total)} <span class="muted">за день</span>` : "";
+  const by = {}; for (const i of c.items) by[i.cls] = (by[i.cls]||0) + i.value;
+  const bar = document.getElementById("bar"), lg = document.getElementById("legend");
+  bar.innerHTML = ""; lg.innerHTML = "";
+  for (const k of ORDER){
+    const v = by[k]; if (!v) continue;
+    const share = v / c.total * 100;
+    bar.insertAdjacentHTML("beforeend", `<i style="width:${share}%;background:var(${CLS[k].c})" title="${CLS[k].name}"></i>`);
+    lg.insertAdjacentHTML("beforeend", `<div><span class="dot" style="background:var(${CLS[k].c})"></span>${CLS[k].name}<b class="num">${pct(share)}</b></div>`);
+  }
+  if (prices.at) setStatus("Цены Мосбиржи · обновлено " + when(prices.at));
+}
+
+function posRow(i, total, opts={}){
+  const qty = i.qty == null ? "" : (i.unit === "г" ? fmt0.format(i.qty) + " г" : fmt0.format(i.qty) + " шт");
+  const price = i.q ? (i.q.quoteUnit === "%" ? fmt2.format(i.q.quote) + "%" : fmtPrice(i.q.quote * (i.grams||1)) + " ₽") : "";
+  const sub = [i.secid.startsWith("CASH") ? "" : esc(i.secid), qty, price].filter(Boolean).join(" · ");
+  const share = total ? i.value / total * 100 : 0;
+  const color = `var(${CLS[i.cls].c})`;
+  return `<div class="row">
+    <span class="name">${esc(i.name)}${i.physical ? ' <span class="tag">физ.</span>' : ""}</span>
+    <span class="val num">${i.priced ? rub(i.value) : '<span class="muted">нет цены</span>'}</span>
+    <span class="sub">${sub}</span>
+    <span class="rt num"><span class="muted">${pct(share)}${opts.label ? " " + opts.label : ""}</span></span>
+    ${opts.noBar ? "" : `<span class="share"><i style="width:${Math.min(100,share)}%;background:${color}"></i></span>`}
+  </div>`;
+}
+
+function viewIssuers(c){
+  const g = {};
+  for (const i of c.items){ (g[i.issuer] ||= {name:i.issuer, items:[], value:0, change:0, cls:i.cls}); g[i.issuer].items.push(i); g[i.issuer].value += i.value; g[i.issuer].change += i.change; }
+  const list = Object.values(g).sort((a,b)=>b.value-a.value);
+  let h = `<h2>Мои эмитенты · ${list.length}</h2><div class="list">`;
+  for (const e of list){
+    const share = c.total ? e.value / c.total * 100 : 0;
+    const multi = e.items.length > 1, isOpen = open.has(e.name);
+    const sub = multi ? `${e.items.length} позиции` : (e.items[0].secid.startsWith("CASH") ? CLS.cash.name : esc(e.items[0].secid));
+    h += `<button class="row" type="button" data-iss="${esc(e.name)}" aria-expanded="${isOpen}">
+      <span class="name"><span class="dot" style="background:var(${CLS[e.cls].c})"></span>${esc(e.name)}</span>
+      <span class="val num">${rub(e.value)}</span>
+      <span class="sub">${sub}${multi ? (isOpen ? " ▴" : " ▾") : ""}</span>
+      <span class="rt"><span class="pct num">${pct(share)}</span></span>
+      <span class="share"><i style="width:${Math.min(100,share)}%;background:var(${CLS[e.cls].c})"></i></span>
+    </button>`;
+    if (isOpen) h += `<div class="kids">${e.items.sort((a,b)=>b.value-a.value).map(i=>posRow(i,c.total,{noBar:true,label:"капитала"})).join("")}</div>`;
+    else if (!multi) {/* single position: details shown in Активы */}
+  }
+  return h + `</div>${dayMovers(c)}`;
+}
+
+function dayMovers(c){
+  const m = c.items.filter(i=>i.change).sort((a,b)=>Math.abs(b.change)-Math.abs(a.change)).slice(0,5);
+  if (!m.length) return "";
+  return `<h2>Сильнее всего за день</h2><div class="list">${m.map(i=>`<div class="row"><span class="name">${esc(i.name)}</span><span class="val">${changeHtml(i.change,i.value)}</span></div>`).join("")}</div>`;
+}
+
+function viewClasses(c){
+  const by = {}; for (const i of c.items) (by[i.cls] ||= []).push(i);
+  const present = ORDER.filter(k => by[k]);
+  if (!present.includes(selCls)) selCls = present[0];
+  let h = `<h2>Виды активов</h2><div class="chips" role="group" aria-label="Вид актива">`;
+  for (const k of present){
+    const v = by[k].reduce((s,i)=>s+i.value,0);
+    h += `<button class="chip" type="button" data-cls="${k}" aria-pressed="${k===selCls}"><strong><span class="dot" style="background:var(${CLS[k].c})"></span>${CLS[k].name}</strong><small class="num">${rub(v)} · ${pct(v/c.total*100)}</small></button>`;
+  }
+  h += `</div>`;
+  if (!selCls) return h;
+  const items = by[selCls].sort((a,b)=>b.value-a.value);
+  const sum = items.reduce((s,i)=>s+i.value,0);
+  const ch = items.reduce((s,i)=>s+i.change,0);
+  h += `<h2>${CLS[selCls].name} · ${rub(sum)}</h2>`;
+  if (selCls !== "cash") h += `<p class="note" style="margin:-4px 0 10px">${changeHtml(ch,sum)} за день · доля от всего капитала</p>`;
+  h += `<div class="list">${items.map(i=>posRow(i,c.total)).join("")}</div>`;
+  if (selCls === "metal"){
+    const grams = {}; for (const i of items) grams[i.issuer] = (grams[i.issuer]||0) + i.qty * (i.grams||1);
+    h += `<p class="note" style="margin-top:10px">Всего в граммах: ${Object.entries(grams).map(([k,v])=>`${k.toLowerCase()} ${fmt2.format(v)} г`).join(", ")}. Монеты оцениваются по биржевой цене золота${data.coinPct!=100?` × ${data.coinPct}%`:""}.</p>`;
+  }
+  if (selCls === "cash") h += `<p class="note" style="margin-top:10px">Наличные меняются в разделе «Ещё».</p>`;
+  return h;
+}
+
+function viewNews(c){
+  const iss = {};
+  for (const i of c.items) if (i.cls === "stock" || i.cls === "bond") (iss[i.issuer] ||= {value:0, ids:[]}), iss[i.issuer].value += i.value, iss[i.issuer].ids.push(i.secid);
+  const list = Object.entries(iss).sort((a,b)=>b[1].value-a[1].value);
+  let h = `<h2>Новости по моим эмитентам</h2><p class="note" style="margin:-2px 0 10px">Ссылки открывают ленту новостей и обсуждений по каждой бумаге. Автоматическая лента прямо в приложении — следующий шаг.</p><div class="list news">`;
+  for (const [name, e] of list){
+    const id = e.ids.find(x=>!/^SU|^RU0/.test(x)) || e.ids[0];
+    const links = /^SU|^RU0/.test(id)
+      ? `<a href="https://smart-lab.ru/q/bonds/${encodeURIComponent(id)}/" target="_blank" rel="noopener">Smart-Lab</a>`
+      : `<a href="https://www.interfax.ru/quote/${encodeURIComponent(id)}" target="_blank" rel="noopener">Интерфакс</a><a href="https://smart-lab.ru/forum/${encodeURIComponent(id)}" target="_blank" rel="noopener">Smart-Lab</a><a href="https://www.e-disclosure.ru/poisk-po-kompaniyam?query=${encodeURIComponent(name)}" target="_blank" rel="noopener">Раскрытие</a>`;
+    h += `<div class="row"><span class="name">${esc(name)}</span><span class="links">${links}</span><span class="sub">${esc(id)} · ${pct(e.value/c.total*100)} капитала</span></div>`;
+  }
+  return h + `</div>`;
+}
+
+function viewMore(){
+  const cash = data.cash || {};
+  let h = `<h2>Кэш</h2><div class="card">
+    <div class="grid2">
+      <label class="f">Наличные, ₽<input id="cashHand" inputmode="decimal" value="${cash.hand||""}" placeholder="0"></label>
+      <label class="f">На брокерских счетах, ₽<input id="cashBroker" inputmode="decimal" value="${cash.broker||""}" placeholder="0"></label>
+    </div>
+    <label class="f">Оценка монет, % от биржевой цены золота<input id="coinPct" inputmode="decimal" value="${data.coinPct ?? 100}"></label>
+  </div>`;
+  h += `<h2>Позиции · ${data.positions.length}</h2><p class="note" style="margin:-2px 0 10px">Количество меняется прямо здесь и сохраняется на телефоне.</p><div class="list">`;
+  data.positions.forEach((p, idx) => {
+    h += `<div class="editrow"><div class="n">${esc(p.name)}<small>${esc(p.secid)} · ${CLS[p.cls].name}${p.unit?" · "+p.unit:""}</small></div>
+      <input id="q${idx}" data-idx="${idx}" class="qty" inputmode="decimal" value="${p.qty}" aria-label="Количество ${esc(p.name)}">
+      <button class="btn danger" type="button" data-del="${idx}" aria-label="Удалить ${esc(p.name)}">✕</button></div>`;
+  });
+  h += `</div><div id="delConfirm"></div>`;
+  h += `<h2>Добавить бумагу</h2><form class="card" id="addForm">
+    <div class="grid2">
+      <label class="f">Тикер Мосбиржи<input id="aSec" required placeholder="SBER, SU26238RMFS4" autocapitalize="characters"></label>
+      <label class="f">Количество<input id="aQty" required inputmode="decimal"></label>
+      <label class="f">Название<input id="aName" required placeholder="Сбербанк ао"></label>
+      <label class="f">Эмитент<input id="aIss" placeholder="Сбербанк"></label>
+    </div>
+    <label class="f">Вид актива<select id="aCls">${ORDER.filter(k=>k!=="cash").map(k=>`<option value="${k}">${CLS[k].name}</option>`).join("")}</select></label>
+    <p class="note">Металлы: GLDRUB_TOM — золото, SLVRUB_TOM — серебро, PLTRUB_TOM — платина, количество в граммах.</p>
+    <div class="btns"><button class="btn" type="submit">Добавить</button></div>
+  </form>`;
+  h += `<h2>Данные</h2><div class="card">
+    <p class="note">Портфель хранится только в этом браузере на телефоне. Сделайте копию, чтобы не потерять его при очистке Safari.</p>
+    <label class="f">Загрузить файл portfolio.json<input type="file" id="fileIn" accept=".json,application/json"></label>
+    <textarea id="jsonBox" aria-label="Данные портфеля" placeholder="Или вставьте сюда содержимое portfolio.json"></textarea>
+    <div class="btns"><button class="btn" type="button" id="importBtn">Загрузить из поля</button><button class="btn ghost" type="button" id="exportBtn">Скопировать мой портфель</button></div>
+  </div>`;
+  return h;
+}
+
+function viewEmpty(){
+  return `<div class="list"><div class="empty">
+    <strong>Портфель пока пуст</strong>
+    <p class="note">Загрузите файл portfolio.json в разделе «Ещё». Он один раз сохранится на телефоне.</p>
+    <button class="btn" type="button" data-goto="more">Перейти к загрузке</button></div></div>`;
+}
+
+function render(){
+  const c = compute();
+  renderSummary(c);
+  const v = document.getElementById("view");
+  if (!data.positions.length && tab !== "more") v.innerHTML = viewEmpty();
+  else v.innerHTML = tab === "issuers" ? viewIssuers(c) : tab === "classes" ? viewClasses(c) : tab === "news" ? viewNews(c) : viewMore();
+  document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+}
+
+function save(){ store.set(KEY, data); }
+function toast(t){ const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.appendChild(d); setTimeout(()=>d.remove(), 2200); }
+const num = s => { const v = parseFloat(String(s).replace(/\s/g,"").replace(",", ".")); return isFinite(v) ? v : 0; };
+
+function load(obj){
+  if (!obj || !Array.isArray(obj.positions)) throw new Error("В файле нет списка позиций");
+  for (const p of obj.positions) if (!p.secid || !CLS[p.cls] || typeof p.qty !== "number") throw new Error("Ошибка в позиции " + (p.name || p.secid || "?"));
+  data = {version:1, positions:obj.positions, cash:obj.cash || {broker:0,hand:0}, coinPct: obj.coinPct ?? 100};
+  save(); tab = "issuers"; store.set(TKEY, tab); render(); refresh(); toast("Портфель загружен");
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button,a"); if (!t) return;
+  if (t.dataset.tab){ tab = t.dataset.tab; store.set(TKEY, tab); render(); window.scrollTo({top:0}); return; }
+  if (t.dataset.goto){ tab = t.dataset.goto; render(); return; }
+  if (t.dataset.iss){ const n = t.dataset.iss; open.has(n) ? open.delete(n) : open.add(n); render(); return; }
+  if (t.dataset.cls){ selCls = t.dataset.cls; render(); return; }
+  if (t.id === "refreshBtn"){ refresh(); return; }
+  if (t.dataset.del){
+    const i = +t.dataset.del, p = data.positions[i];
+    document.getElementById("delConfirm").innerHTML = `<div class="card" style="margin-top:10px"><p class="note">Удалить «${esc(p.name)}» из портфеля?</p><div class="btns"><button class="btn" type="button" data-delok="${i}">Удалить</button><button class="btn ghost" type="button" data-delno="1">Отмена</button></div></div>`;
+    return;
+  }
+  if (t.dataset.delok){ data.positions.splice(+t.dataset.delok,1); save(); render(); toast("Позиция удалена"); return; }
+  if (t.dataset.delno){ document.getElementById("delConfirm").innerHTML = ""; return; }
+  if (t.id === "importBtn"){
+    try { load(JSON.parse(document.getElementById("jsonBox").value)); }
+    catch(err){ toast("Не получилось прочитать данные: " + err.message); }
+    return;
+  }
+  if (t.id === "exportBtn"){
+    const txt = JSON.stringify(data, null, 1);
+    const box = document.getElementById("jsonBox"); box.value = txt;
+    try { await navigator.clipboard.writeText(txt); toast("Портфель скопирован"); }
+    catch(err){ box.focus(); box.select(); toast("Выделил текст, скопируйте его вручную"); }
+  }
+});
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.classList.contains("qty")){ data.positions[+t.dataset.idx].qty = num(t.value); save(); toast("Сохранено"); renderSummary(compute()); }
+  else if (t.id === "cashHand" || t.id === "cashBroker"){ data.cash = data.cash || {}; data.cash[t.id === "cashHand" ? "hand" : "broker"] = num(t.value); save(); toast("Сохранено"); renderSummary(compute()); }
+  else if (t.id === "coinPct"){ data.coinPct = num(t.value) || 100; save(); toast("Сохранено"); renderSummary(compute()); }
+  else if (t.id === "fileIn" && t.files[0]){
+    const r = new FileReader();
+    r.onload = () => { try { load(JSON.parse(r.result)); } catch(err){ toast("Не получилось прочитать файл: " + err.message); } };
+    r.readAsText(t.files[0]);
+  }
+});
+
+document.addEventListener("submit", e => {
+  if (e.target.id !== "addForm") return;
+  e.preventDefault();
+  const sec = document.getElementById("aSec").value.trim().toUpperCase();
+  const cls = document.getElementById("aCls").value;
+  const p = {secid: sec, name: document.getElementById("aName").value.trim(), issuer: document.getElementById("aIss").value.trim() || document.getElementById("aName").value.trim(), cls, qty: num(document.getElementById("aQty").value)};
+  if (cls === "metal") p.unit = "г";
+  data.positions.push(p); save(); render(); refresh(); toast("Добавлено: " + p.name);
+});
+
+/* Refresh whenever the app comes back to the screen */
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
+window.addEventListener("pageshow", ev => { if (ev.persisted) refresh(); });
+
+render();
+refresh();
+</script>
+</body>
+</html>
