@@ -66,6 +66,13 @@ button,input,select,textarea{font:inherit;color:inherit}
 .status{font-size:12px;color:var(--muted)}
 .status.err{color:var(--down)}
 
+/* market strip: dollar, euro, Brent */
+.mkt{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mkt div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;min-width:0}
+.mkt small{display:block;font-size:11px;color:var(--muted);letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mkt b{display:block;font-size:16px;font-weight:700;white-space:nowrap}
+.mkt span{font-size:12px;font-weight:500}
+
 /* lists */
 h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:22px 0 8px}
 .list{background:var(--surface);border-radius:var(--r);border:1px solid var(--line);overflow:hidden}
@@ -139,6 +146,7 @@ nav.tabs svg{width:22px;height:22px}
     <div class="bar" id="bar"></div>
     <div class="legend" id="legend"></div>
     <div class="status" id="status">Загружаю цены Мосбиржи…</div>
+    <div class="mkt" id="mkt" aria-label="Рынок"></div>
   </section>
   <main id="view"></main>
 </div>
@@ -234,6 +242,52 @@ async function fetchBoard(path, ids){
   return res;
 }
 
+/* Dollar and euro: Bank of Russia rate published on MOEX; fallback cbr-xml-daily. Brent: nearest MOEX futures BR (USD per barrel) */
+async function getJSON(url){
+  const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), 20000);
+  try { const r = await fetch(url, {cache:"no-store", signal: ctrl.signal}); if (!r.ok) throw new Error("HTTP " + r.status); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+async function fetchFx(){
+  try {
+    const j = await getJSON(`${ISS}/statistics/engines/currency/markets/selt/rates.json?iss.meta=off&iss.only=cbrf`);
+    const c = rows(j,"cbrf")[0] || {};
+    if (c.CBRF_USD_LAST && c.CBRF_EUR_LAST) return {
+      usd:{v:c.CBRF_USD_LAST, chp:c.CBRF_USD_LASTCHANGEPRCNT},
+      eur:{v:c.CBRF_EUR_LAST, chp:c.CBRF_EUR_LASTCHANGEPRCNT}};
+  } catch(e){}
+  const j = await getJSON("https://www.cbr-xml-daily.ru/daily_json.js");
+  const u = j.Valute.USD, e = j.Valute.EUR;
+  return {usd:{v:u.Value, chp:(u.Value/u.Previous-1)*100}, eur:{v:e.Value, chp:(e.Value/e.Previous-1)*100}};
+}
+async function fetchBrent(){
+  const list = await getJSON(`${ISS}/engines/futures/markets/forts/securities.json?iss.meta=off&iss.only=securities&securities.columns=SECID,ASSETCODE,LASTTRADEDATE,PREVSETTLEPRICE`);
+  const today = new Date().toISOString().slice(0,10);
+  const br = rows(list,"securities").filter(s => s.ASSETCODE === "BR" && s.LASTTRADEDATE >= today).sort((a,b)=>a.LASTTRADEDATE.localeCompare(b.LASTTRADEDATE))[0];
+  if (!br) throw new Error("no BR");
+  const md = await getJSON(`${ISS}/engines/futures/markets/forts/securities/${br.SECID}.json?iss.meta=off&iss.only=marketdata`);
+  const m = rows(md,"marketdata")[0] || {};
+  const v = first(m.LAST, m.SETTLEPRICE, br.PREVSETTLEPRICE);
+  if (!v) throw new Error("no price");
+  return {v, chp: br.PREVSETTLEPRICE ? (v/br.PREVSETTLEPRICE-1)*100 : null, secid: br.SECID};
+}
+async function refreshMarket(){
+  const m = {...(prices.mkt || {})};
+  const [fx, brent] = await Promise.allSettled([fetchFx(), fetchBrent()]);
+  if (fx.status === "fulfilled") Object.assign(m, fx.value);
+  if (brent.status === "fulfilled") m.brent = brent.value;
+  prices.mkt = m;
+}
+function renderMarket(){
+  const m = prices.mkt || {};
+  const tile = (label, x, unit) => {
+    if (!x) return `<div><small>${label}</small><b class="num muted">—</b></div>`;
+    const ch = typeof x.chp === "number" && isFinite(x.chp) ? `<span class="num ${x.chp>0?"up":x.chp<0?"down":"muted"}">${x.chp>0?"+":x.chp<0?"−":""}${fmt2.format(Math.abs(x.chp))}%</span>` : "";
+    return `<div><small>${label}</small><b class="num">${fmt2.format(x.v)} ${unit}</b>${ch}</div>`;
+  };
+  document.getElementById("mkt").innerHTML = tile("Доллар, ЦБ", m.usd, "₽") + tile("Евро, ЦБ", m.eur, "₽") + tile("Нефть Brent", m.brent, "$");
+}
+
 async function refresh(){
   const btn = document.getElementById("refreshBtn");
   if (btn.classList.contains("busy") || !data.positions.length) { render(); return; }
@@ -242,12 +296,16 @@ async function refresh(){
   const groups = {};
   for (const p of data.positions){ const r = route(p); (groups[r] ||= new Set()).add(p.secid); }
   const q = {...prices.q}; let ok = 0, fail = 0;
-  await Promise.all(Object.entries(groups).map(async ([path, set]) => {
-    try { Object.assign(q, await fetchBoard(path, [...set])); ok++; }
-    catch(e){ fail++; }
-  }));
+  await Promise.all([
+    ...Object.entries(groups).map(async ([path, set]) => {
+      try { Object.assign(q, await fetchBoard(path, [...set])); ok++; }
+      catch(e){ fail++; }
+    }),
+    refreshMarket()
+  ]);
   btn.classList.remove("busy");
-  if (ok){ prices = {at: Date.now(), q}; store.set(PKEY, prices); }
+  if (ok){ prices = {at: Date.now(), q, mkt: prices.mkt}; }
+  store.set(PKEY, prices);
   render();
   if (fail && !ok) setStatus("Нет связи с Мосбиржей. Показаны цены на " + when(prices.at) + ".", true);
   else if (fail) setStatus("Часть цен не обновилась. Обновлено " + when(prices.at) + ".", true);
@@ -363,7 +421,26 @@ function viewClasses(c){
   const ch = items.reduce((s,i)=>s+i.change,0);
   h += `<h2>${CLS[selCls].name} · ${rub(sum)}</h2>`;
   if (selCls !== "cash") h += `<p class="note" style="margin:-4px 0 10px">${changeHtml(ch,sum)} за день · доля от всего капитала</p>`;
-  h += `<div class="list">${items.map(i=>posRow(i,c.total)).join("")}</div>`;
+  /* Same issuer within one class becomes one row (e.g. Сбербанк ао + ап); physical coins stay separate */
+  const grp = {};
+  for (const i of items){ const k = i.issuer + (i.physical ? "|phys" : ""); (grp[k] ||= []).push(i); }
+  const merged = Object.entries(grp).map(([k, arr]) => ({k, arr, value: arr.reduce((s,i)=>s+i.value,0)})).sort((a,b)=>b.value-a.value);
+  h += `<div class="list">`;
+  for (const g of merged){
+    if (g.arr.length === 1){ h += posRow(g.arr[0], c.total); continue; }
+    const key = "c:" + g.k, isOpen = open.has(key);
+    const share = c.total ? g.value / c.total * 100 : 0;
+    const sub = g.arr.map(i => `${esc(i.secid)} ${fmt0.format(i.qty)}${i.unit === "г" ? " г" : " шт"}`).join(" + ");
+    h += `<button class="row" type="button" data-iss="${esc(key)}" aria-expanded="${isOpen}">
+      <span class="name">${esc(g.arr[0].issuer)}</span>
+      <span class="val num">${rub(g.value)}</span>
+      <span class="sub">${sub} ${isOpen ? "▴" : "▾"}</span>
+      <span class="rt num"><span class="muted">${pct(share)}</span></span>
+      <span class="share"><i style="width:${Math.min(100,share)}%;background:var(${CLS[selCls].c})"></i></span>
+    </button>`;
+    if (isOpen) h += `<div class="kids">${g.arr.map(i=>posRow(i,c.total,{noBar:true})).join("")}</div>`;
+  }
+  h += `</div>`;
   if (selCls === "metal"){
     const grams = {}; for (const i of items) grams[i.issuer] = (grams[i.issuer]||0) + i.qty * (i.grams||1);
     h += `<p class="note" style="margin-top:10px">Всего в граммах: ${Object.entries(grams).map(([k,v])=>`${k.toLowerCase()} ${fmt2.format(v)} г`).join(", ")}. Монеты оцениваются по биржевой цене золота${data.coinPct!=100?` × ${data.coinPct}%`:""}.</p>`;
@@ -433,6 +510,7 @@ function viewEmpty(){
 function render(){
   const c = compute();
   renderSummary(c);
+  renderMarket();
   const v = document.getElementById("view");
   if (!data.positions.length && tab !== "more") v.innerHTML = viewEmpty();
   else v.innerHTML = tab === "issuers" ? viewIssuers(c) : tab === "classes" ? viewClasses(c) : tab === "news" ? viewNews(c) : viewMore();
