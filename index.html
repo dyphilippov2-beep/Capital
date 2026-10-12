@@ -192,31 +192,38 @@ function route(p){
   return "stock/shares/TQBR";
 }
 
-function block(json, name){
-  const b = json[name]; if (!b) return {};
-  const out = {};
-  for (const row of b.data){
-    const o = {}; b.columns.forEach((c,i)=>o[c]=row[i]);
-    out[o.SECID] = o;
-  }
-  return out;
+function rows(json, name){
+  const b = json[name]; if (!b) return [];
+  return b.data.map(row => { const o = {}; b.columns.forEach((c,i)=>o[c]=row[i]); return o; });
 }
 const first = (...v) => { for (const x of v) if (typeof x === "number" && x > 0) return x; return null; };
 
 async function fetchBoard(path, ids){
   const [engine, market, board] = path.split("/");
-  const url = `${ISS}/engines/${engine}/markets/${market}/boards/${board}/securities.json?iss.meta=off&iss.only=securities,marketdata&securities=${ids.map(encodeURIComponent).join(",")}`;
-  const r = await fetch(url, {cache:"no-store"});
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  const j = await r.json();
-  const sec = block(j,"securities"), md = block(j,"marketdata");
+  /* Ask the whole market, not one board, so a paper is found wherever it trades */
+  const url = `${ISS}/engines/${engine}/markets/${market}/securities.json?iss.meta=off&iss.only=securities,marketdata&securities=${ids.map(encodeURIComponent).join(",")}`;
+  const ctrl = new AbortController(); const timer = setTimeout(()=>ctrl.abort(), 20000);
+  let j;
+  try {
+    const r = await fetch(url, {cache:"no-store", signal: ctrl.signal});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    j = await r.json();
+  } finally { clearTimeout(timer); }
+  const secRows = rows(j,"securities"), mdRows = rows(j,"marketdata");
   const res = {};
+  const isBond = engine === "stock" && market === "bonds";
   for (const id of ids){
-    const s = sec[id] || {}, m = md[id] || {};
-    const isBond = engine === "stock" && market === "bonds";
-    const last = first(m.LAST, m.LCURRENTPRICE, m.MARKETPRICE, m.WAPRICE, m.MARKETPRICETODAY, s.PREVPRICE, s.PREVLEGALCLOSEPRICE, s.PREVWAPRICE);
+    /* candidate boards: preferred board first, then any board with a price */
+    const cands = secRows.filter(s => s.SECID === id).map(s => ({s, m: mdRows.find(m => m.SECID === id && m.BOARDID === s.BOARDID) || {}}));
+    cands.sort((a,b) => (b.s.BOARDID === board) - (a.s.BOARDID === board));
+    let pick = null;
+    for (const c of cands){
+      const last = first(c.m.LAST, c.m.LCURRENTPRICE, c.m.MARKETPRICE, c.m.WAPRICE, c.m.MARKETPRICETODAY, c.s.PREVPRICE, c.s.PREVLEGALCLOSEPRICE, c.s.PREVWAPRICE);
+      if (last){ pick = {...c, last}; break; }
+    }
+    if (!pick) continue;
+    const s = pick.s, last = pick.last;
     const prev = first(s.PREVPRICE, s.PREVLEGALCLOSEPRICE, s.PREVWAPRICE, last);
-    if (!last) continue;
     if (isBond){
       const face = first(s.FACEVALUE) || 1000, acc = s.ACCRUEDINT || 0;
       res[id] = {unit: last/100*face + acc, prev: prev/100*face + acc, quote: last, quoteUnit:"%"};
@@ -291,7 +298,10 @@ function renderSummary(c){
     bar.insertAdjacentHTML("beforeend", `<i style="width:${share}%;background:var(${CLS[k].c})" title="${CLS[k].name}"></i>`);
     lg.insertAdjacentHTML("beforeend", `<div><span class="dot" style="background:var(${CLS[k].c})"></span>${CLS[k].name}<b class="num">${pct(share)}</b></div>`);
   }
-  if (prices.at) setStatus("Цены Мосбиржи · обновлено " + when(prices.at));
+  if (prices.at){
+    const miss = [...new Set(c.items.filter(i => !i.priced).map(i => i.secid))];
+    setStatus("Цены Мосбиржи · обновлено " + when(prices.at) + (miss.length ? " · нет цены: " + miss.join(", ") : ""), miss.length > 0);
+  }
 }
 
 function posRow(i, total, opts={}){
