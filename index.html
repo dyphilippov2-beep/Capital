@@ -128,7 +128,12 @@ textarea{min-height:120px;font-size:12px;font-family:ui-monospace,Menlo,monospac
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--surface) 92%,transparent);
   -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-top:1px solid var(--line);
   padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center}
-nav.tabs div{display:grid;grid-template-columns:repeat(4,1fr);width:100%;max-width:560px}
+nav.tabs div{display:grid;grid-template-columns:repeat(5,1fr);width:100%;max-width:560px}
+.income{display:grid;gap:4px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.income .big{font-size:26px;font-weight:700;letter-spacing:-.01em}
+.income .split{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 14px;margin-top:8px;font-size:13px}
+.income .split div{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding-top:6px}
+.basis{font-size:11px;font-weight:600;letter-spacing:.03em;color:var(--muted)}
 nav.tabs button{background:none;border:0;padding:6px 2px;display:grid;justify-items:center;gap:3px;font-size:11px;color:var(--muted);cursor:pointer}
 nav.tabs button[aria-selected="true"]{color:var(--fg);font-weight:600}
 nav.tabs svg{width:22px;height:22px}
@@ -154,6 +159,7 @@ nav.tabs svg{width:22px;height:22px}
 <nav class="tabs" aria-label="Разделы"><div role="tablist">
   <button role="tab" data-tab="issuers" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12l6 6"/></svg>Эмитенты</button>
   <button role="tab" data-tab="classes" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Активы</button>
+  <button role="tab" data-tab="income" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19h16"/><path d="M6 15l4-4 3 3 5-6"/><path d="M15 8h3v3"/></svg>Доход</button>
   <button role="tab" data-tab="news" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 9h8M8 12.5h8M8 16h5"/></svg>Новости</button>
   <button role="tab" data-tab="more" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Ещё</button>
 </div></nav>
@@ -234,7 +240,8 @@ async function fetchBoard(path, ids){
     const prev = first(s.PREVPRICE, s.PREVLEGALCLOSEPRICE, s.PREVWAPRICE, last);
     if (isBond){
       const face = first(s.FACEVALUE) || 1000, acc = s.ACCRUEDINT || 0;
-      res[id] = {unit: last/100*face + acc, prev: prev/100*face + acc, quote: last, quoteUnit:"%"};
+      res[id] = {unit: last/100*face + acc, prev: prev/100*face + acc, quote: last, quoteUnit:"%",
+        ytm: first(pick.m.YIELD, s.YIELDATPREVWAPRICE), cpn: first(s.COUPONPERCENT), mat: s.MATDATE || null};
     } else {
       res[id] = {unit:last, prev, quote:last, quoteUnit:"₽"};
     }
@@ -449,6 +456,106 @@ function viewClasses(c){
   return h;
 }
 
+/* ---------- Income: dividends (12 months), bond yield to maturity, money-market fund rate ---------- */
+const IKEY = "mycap.income.v1";
+let income = store.get(IKEY) || {day:null, div:{}, fund:{}};
+let incomeBusy = false;
+const isoDay = d => d.toISOString().slice(0,10);
+
+async function fetchDiv(id){
+  const j = await getJSON(`${ISS}/securities/${encodeURIComponent(id)}/dividends.json?iss.meta=off`);
+  const from = isoDay(new Date(Date.now() - 365*864e5)), to = isoDay(new Date());
+  return rows(j,"dividends").filter(r => r.registryclosedate > from && r.registryclosedate <= to && (!r.currencyid || r.currencyid === "RUB" || r.currencyid === "SUR"))
+    .reduce((s,r) => s + (+r.value || 0), 0);
+}
+async function fetchFundRate(id){
+  const from = isoDay(new Date(Date.now() - 60*864e5));
+  const j = await getJSON(`${ISS}/history/engines/stock/markets/shares/securities/${encodeURIComponent(id)}.json?iss.meta=off&from=${from}&history.columns=TRADEDATE,BOARDID,CLOSE,LEGALCLOSEPRICE`);
+  const h = rows(j,"history").filter(r => r.BOARDID === "TQTF" && first(r.CLOSE, r.LEGALCLOSEPRICE)).sort((a,b)=>a.TRADEDATE.localeCompare(b.TRADEDATE));
+  if (h.length < 2) throw new Error("no history");
+  const last = h[h.length-1], target = isoDay(new Date(new Date(last.TRADEDATE) - 30*864e5));
+  const old = h.find(r => r.TRADEDATE >= target) || h[0];
+  const days = (new Date(last.TRADEDATE) - new Date(old.TRADEDATE)) / 864e5;
+  if (days < 7) throw new Error("short");
+  return (Math.pow(first(last.CLOSE,last.LEGALCLOSEPRICE) / first(old.CLOSE,old.LEGALCLOSEPRICE), 365/days) - 1) * 100;
+}
+async function loadIncome(force){
+  if (incomeBusy) return;
+  const today = isoDay(new Date());
+  const stocks = [...new Set(data.positions.filter(p=>p.cls==="stock").map(p=>p.secid))];
+  const mm = [...new Set(data.positions.filter(p=>p.cls==="mm").map(p=>p.secid))];
+  if (!force && income.day === today && stocks.every(s => s in income.div) && mm.every(s => s in income.fund)) return;
+  incomeBusy = true;
+  const next = {day: today, div: {...income.div}, fund: {...income.fund}};
+  const jobs = [...stocks.map(id => async () => { try { next.div[id] = await fetchDiv(id); } catch(e){} }),
+                ...mm.map(id => async () => { try { next.fund[id] = await fetchFundRate(id); } catch(e){} })];
+  for (let i = 0; i < jobs.length; i += 6) await Promise.all(jobs.slice(i, i+6).map(f => f()));
+  income = next; store.set(IKEY, income); incomeBusy = false;
+  if (tab === "income") document.getElementById("view").innerHTML = viewIncome(compute());
+}
+
+function incomeOf(i){
+  /* returns {pct, rub, basis} or null when there is no data yet */
+  if (!i.priced || !i.value) return {pct:0, rub:0, basis:"нет цены с биржи"};
+  if (i.cls === "stock"){
+    if (!(i.secid in income.div)) return null;
+    const perShare = income.div[i.secid], pct = i.q.unit ? perShare / i.q.unit * 100 : 0;
+    return {pct, rub: perShare * i.qty, basis: perShare ? `дивиденды за 12 мес · ${fmt2.format(perShare)} ₽ на акцию` : "дивидендов за 12 мес не было"};
+  }
+  if (i.cls === "bond"){
+    let pct = i.q.ytm, basis = "доходность к погашению";
+    if (!(pct > 0 && pct < 60)){ pct = i.q.cpn || 0; basis = "купон к номиналу"; }
+    return {pct, rub: i.value * pct / 100, basis};
+  }
+  if (i.cls === "mm"){
+    if (!(i.secid in income.fund)) return null;
+    const pct = income.fund[i.secid];
+    return {pct, rub: i.value * pct / 100, basis: "рост пая за 30 дней, в пересчёте на год"};
+  }
+  if (i.cls === "fund") return {pct:0, rub:0, basis:"фонд не делает выплат, растёт только цена"};
+  if (i.cls === "metal") return {pct:0, rub:0, basis:"металл не приносит выплат"};
+  return {pct:0, rub:0, basis:"наличные"};
+}
+
+function viewIncome(c){
+  const g = {};
+  for (const i of c.items){
+    const k = i.issuer + "|" + i.cls;
+    (g[k] ||= {name:i.issuer, cls:i.cls, value:0, rub:0, parts:[], pending:false});
+    const r = incomeOf(i);
+    g[k].value += i.value;
+    if (r){ g[k].rub += r.rub; g[k].parts.push({i, r}); } else g[k].pending = true;
+  }
+  const list = Object.values(g).sort((a,b)=>b.rub-a.rub || b.value-a.value);
+  const total = list.reduce((s,e)=>s+e.rub,0);
+  const pending = list.some(e=>e.pending);
+  const byCls = {}; for (const e of list) byCls[e.cls] = (byCls[e.cls]||0) + e.rub;
+  const pctTotal = c.total ? total / c.total * 100 : 0;
+
+  let h = `<h2>Доход портфеля за год</h2><div class="income">
+    <span class="muted" style="font-size:13px">Портфель приносит в год, до НДФЛ</span>
+    <span class="big num">${rub(total)} · ${fmtP.format(pctTotal)}%</span>
+    <span class="muted" style="font-size:13px">≈ ${rub(total/12)} в месяц · после НДФЛ 13% ≈ ${rub(total*0.87)} в год</span>
+    <div class="split">${["stock","bond","mm"].filter(k=>byCls[k]).map(k=>`<div><span><span class="dot" style="display:inline-block;background:var(${CLS[k].c});margin-right:6px"></span>${CLS[k].name}</span><b class="num">${rub(byCls[k])}</b></div>`).join("")}</div>
+    ${pending ? `<span class="status" style="margin-top:6px">${incomeBusy ? "Загружаю дивиденды и ставки с Мосбиржи…" : "Часть данных не загрузилась. Нажмите «Обновить»."}</span>` : ""}
+  </div>`;
+
+  h += `<h2>По бумагам</h2><div class="list">`;
+  for (const e of list){
+    const pct = e.value ? e.rub / e.value * 100 : 0;
+    const basis = e.parts.length === 1 ? e.parts[0].r.basis : e.parts.map(p => `${esc(p.i.secid)} ${fmtP.format(p.r.pct)}%`).join(" · ");
+    h += `<div class="row">
+      <span class="name"><span class="dot" style="background:var(${CLS[e.cls].c})"></span>${esc(e.name)}</span>
+      <span class="val num">${e.pending && !e.parts.length ? '<span class="muted">…</span>' : (e.rub ? rub(e.rub) : '<span class="muted">0 ₽</span>')}</span>
+      <span class="sub">${e.pending && !e.parts.length ? "загружаю…" : basis}</span>
+      <span class="rt num"><span class="pct">${e.pending && !e.parts.length ? "—" : fmtP.format(pct) + "%"}</span></span>
+    </div>`;
+  }
+  h += `</div><p class="note" style="margin-top:10px">Дивиденды — фактические выплаты за последние 12 месяцев к текущей цене акции; будущие могут отличаться. Облигации — доходность к погашению по данным Мосбиржи. Фонды денежного рынка — рост пая за последние 30 дней в пересчёте на год.</p>
+  <div class="btns" style="margin-top:10px"><button class="btn ghost" type="button" id="incomeReload">Пересчитать</button></div>`;
+  return h;
+}
+
 function viewNews(c){
   const iss = {};
   for (const i of c.items) if (i.cls === "stock" || i.cls === "bond") (iss[i.issuer] ||= {value:0, ids:[]}), iss[i.issuer].value += i.value, iss[i.issuer].ids.push(i.secid);
@@ -512,8 +619,9 @@ function render(){
   renderSummary(c);
   renderMarket();
   const v = document.getElementById("view");
+  if (tab === "income" && data.positions.length) loadIncome();
   if (!data.positions.length && tab !== "more") v.innerHTML = viewEmpty();
-  else v.innerHTML = tab === "issuers" ? viewIssuers(c) : tab === "classes" ? viewClasses(c) : tab === "news" ? viewNews(c) : viewMore();
+  else v.innerHTML = tab === "issuers" ? viewIssuers(c) : tab === "classes" ? viewClasses(c) : tab === "income" ? viewIncome(c) : tab === "news" ? viewNews(c) : viewMore();
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
 }
 
@@ -534,7 +642,8 @@ document.addEventListener("click", async e => {
   if (t.dataset.goto){ tab = t.dataset.goto; render(); return; }
   if (t.dataset.iss){ const n = t.dataset.iss; open.has(n) ? open.delete(n) : open.add(n); render(); return; }
   if (t.dataset.cls){ selCls = t.dataset.cls; render(); return; }
-  if (t.id === "refreshBtn"){ refresh(); return; }
+  if (t.id === "refreshBtn"){ refresh(); if (tab === "income") loadIncome(true); return; }
+  if (t.id === "incomeReload"){ const p = loadIncome(true); render(); await p; return; }
   if (t.dataset.del){
     const i = +t.dataset.del, p = data.positions[i];
     document.getElementById("delConfirm").innerHTML = `<div class="card" style="margin-top:10px"><p class="note">Удалить «${esc(p.name)}» из портфеля?</p><div class="btns"><button class="btn" type="button" data-delok="${i}">Удалить</button><button class="btn ghost" type="button" data-delno="1">Отмена</button></div></div>`;
