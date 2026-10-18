@@ -478,7 +478,7 @@ const DIVS = {
   SNGSP:[["2025-07-17",8.5],["2026-07-16",0.85]],
   T:[["2025-10-06",3.5],["2026-01-08",3.6],["2026-05-25",4.5],["2026-08-10",4.6],["2026-10-12",4.7]],
   MOEX:[["2025-07-10",26.11],["2026-07-09",19.57]],
-  MDMG:[["2025-10-20",42],["2026-11-19",38]],
+  MDMG:[["2025-05-19",22],["2025-10-20",42],["2026-07-14",47],["2026-10-19",38]],
   VTBR:[["2025-07-11",25.58],["2026-07-20",9.71]],
   ROSN:[["2025-07-20",14.68],["2026-01-12",11.56],["2026-07-09",2.27]],
   PLZL:[["2025-10-13",70.85],["2025-12-22",36],["2026-05-18",56.8],["2026-07-13",29.05]],
@@ -530,7 +530,7 @@ async function loadIncome(force){
   if (incomeBusy) return;
   const today = isoDay(new Date());
   const stocks = [];
-  const mm = [...new Set(data.positions.filter(p=>p.cls==="mm").map(p=>p.secid))];
+  const mm = [...new Set(data.positions.filter(p=>isMM(p)).map(p=>p.secid))];
   if (!force && income.day === today && stocks.every(s => s in income.div) && mm.every(s => s in income.fund)) return;
   incomeBusy = true;
   const next = {day: today, div: {...income.div}, fund: {...income.fund}};
@@ -541,6 +541,9 @@ async function loadIncome(force){
   if (tab === "income") document.getElementById("view").innerHTML = viewIncome(compute());
 }
 
+/* Money-market funds count as such even if added under «Фонды» */
+const MM_IDS = ["LQDT","SBMM","AKMM","TMON","RCMM","PSMM","BCSD","AMNR","GPBM","CNYM","SCLI","MKOD","YMMF"];
+const isMM = p => p.cls === "mm" || MM_IDS.includes(p.secid);
 function incomeOf(i){
   /* returns {pct, rub, basis} or null when there is no data yet */
   if (!i.priced || !i.value) return {pct:0, rub:0, basis:"нет цены с биржи"};
@@ -555,7 +558,7 @@ function incomeOf(i){
     if (!(pct > 0 && pct < 60)){ pct = i.q.cpn || 0; basis = "купон к номиналу"; }
     return {pct, rub: i.value * pct / 100, basis};
   }
-  if (i.cls === "mm"){
+  if (isMM(i)){
     if (!(i.secid in income.fund)) return null;
     const pct = income.fund[i.secid];
     return {pct, rub: i.value * pct / 100, basis: "рост пая за 30 дней, в пересчёте на год"};
