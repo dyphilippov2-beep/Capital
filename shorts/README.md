@@ -1,0 +1,79 @@
+# Шортсы из YouTube
+
+Даёте ссылку на YouTube-видео, а скрипт:
+
+1. скачивает видео (yt-dlp);
+2. расшифровывает речь с таймкодами слов (Whisper, локально);
+3. просит Claude выбрать самые цепляющие моменты по 20–59 секунд и придумать к ним заголовки, описания и хэштеги;
+4. режет клипы в вертикальном формате 1080×1920 с крупными вшитыми субтитрами (ffmpeg);
+5. по желанию выкладывает их в YouTube Shorts, Telegram-канал и VK.
+
+## Установка
+
+Нужны Python 3.10+ и ffmpeg (`brew install ffmpeg`, `sudo apt install ffmpeg` или ffmpeg.org для Windows).
+
+```bash
+cd shorts
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY=sk-ant-...   # ключ: console.anthropic.com
+```
+
+Запускайте на своём компьютере: YouTube часто блокирует скачивание с облачных серверов.
+
+## Использование
+
+```bash
+# 5 лучших моментов, выбранных ИИ
+python shorts.py "https://www.youtube.com/watch?v=XXXXXXXXXXX"
+
+# 8 клипов по 30–45 секунд, видео целиком на размытом фоне вместо обрезки по центру
+python shorts.py URL --count 8 --min 30 --max 45 --layout blur
+
+# свои таймкоды
+python shorts.py URL --clips "1:05-1:40,12:00-12:45"
+
+# нарезать и сразу выложить
+python shorts.py URL --upload youtube,telegram,vk
+```
+
+Результат появится в `output/<id видео>/`: файлы `01_Заголовок.mp4`, … и `clips.json` с заголовками, описаниями и хэштегами (их можно скопировать при ручной выкладке).
+
+Полезные параметры:
+
+| Параметр | Что делает |
+|---|---|
+| `--layout crop` / `blur` | `crop` обрезает центр кадра (подходит для говорящей головы), `blur` вписывает весь кадр на размытом фоне |
+| `--no-subs` | без субтитров |
+| `--whisper medium` | более точная, но медленная расшифровка (по умолчанию `small`) |
+| `--lang ru` | указать язык речи вместо автоопределения |
+| `--no-ai` | без Claude: режет равными кусками |
+| `--privacy public` | сразу публичная выкладка на YouTube (по умолчанию `private`, чтобы вы сначала проверили) |
+
+Если вы сначала хотите просмотреть клипы, а выложить потом:
+
+```bash
+python publish.py output/XXXXXXXXXXX/clips.json youtube,telegram public
+```
+
+## Настройка соцсетей
+
+**YouTube Shorts.** В [Google Cloud Console](https://console.cloud.google.com/) создайте проект, включите *YouTube Data API v3*, создайте OAuth-клиент типа «Desktop app» и скачайте JSON в `shorts/client_secret.json`. При первой выкладке откроется браузер для входа в аккаунт, после чего токен сохранится в `youtube_token.json`. Вертикальное видео короче 60 секунд YouTube сам отнесёт к Shorts. Лимит API по умолчанию — около 6 загрузок в сутки.
+
+**Telegram.** Создайте бота у @BotFather, добавьте его администратором канала.
+```bash
+export TELEGRAM_BOT_TOKEN=123456:ABC...
+export TELEGRAM_CHAT_ID=@my_channel
+```
+Боты могут отправлять файлы до 50 МБ, минутного клипа хватает с запасом.
+
+**VK.** Нужен пользовательский токен с правами `video,wall,groups,offline` (например, через своё Standalone-приложение на dev.vk.com).
+```bash
+export VK_TOKEN=vk1.a....
+export VK_GROUP_ID=123456789   # id сообщества без минуса; не задан — на вашу страницу
+```
+
+**Instagram Reels и TikTok** не поддерживаются: их API разрешают публикацию только приложениям, прошедшим проверку (Meta Business / TikTok for Developers). Выкладывайте вручную готовые файлы из `output/`, взяв подписи из `clips.json`, или используйте сервис отложенного постинга, например Buffer, Later или SMMplanner.
+
+## Важно
+
+Нарезайте только свои видео или те, на которые у вас есть права. Перепубликация чужого контента нарушает правила площадок и может привести к страйкам.

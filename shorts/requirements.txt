@@ -1,0 +1,7 @@
+yt-dlp
+faster-whisper
+anthropic
+pydantic
+requests
+google-api-python-client
+google-auth-oauthlib
