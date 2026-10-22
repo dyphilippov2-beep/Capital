@@ -68,13 +68,47 @@ def transcribe(video, workdir, model_size, language):
 
 # ---------- 3. Выбор фрагментов ----------
 
-def pick_clips_ai(title, transcript, count, min_len, max_len):
+SENTENCE_END = ("." , "!", "?", "…")
+
+
+def build_sentences(words, pause=1.0, max_sentence=20.0):
+    """Склеивает слова в предложения: конец — знак препинания или долгая пауза.
+
+    Клипы собираются только из целых предложений, поэтому не могут
+    начаться или закончиться на полуслове.
+    """
+    sentences, cur = [], []
+    for i, w in enumerate(words):
+        cur.append(w)
+        nxt = words[i + 1] if i + 1 < len(words) else None
+        gap = nxt["start"] - w["end"] if nxt else 0
+        too_long = w["end"] - cur[0]["start"] > max_sentence
+        if not nxt or w["text"].endswith(SENTENCE_END) or gap >= pause or too_long:
+            sentences.append({"start": cur[0]["start"], "end": cur[-1]["end"],
+                              "text": " ".join(x["text"] for x in cur)})
+            cur = []
+    return sentences
+
+
+def clip_bounds(sentences, first, last, duration):
+    """Время клипа по номерам предложений + небольшие поля, не залезая в соседние фразы."""
+    start = sentences[first]["start"] - 0.3
+    end = sentences[last]["end"] + 0.6
+    if first > 0:
+        start = max(start, (sentences[first - 1]["end"] + sentences[first]["start"]) / 2)
+    if last + 1 < len(sentences):
+        end = min(end, (sentences[last]["end"] + sentences[last + 1]["start"]) / 2)
+    return max(start, 0.0), min(end, duration)
+
+
+def pick_clips_ai(title, sentences, duration, count, min_len, max_len):
     import anthropic
     from pydantic import BaseModel
 
     class Clip(BaseModel):
-        start: float
-        end: float
+        first_sentence: int
+        last_sentence: int
+        why: str
         title: str
         description: str
         hashtags: list[str]
@@ -82,26 +116,48 @@ def pick_clips_ai(title, transcript, count, min_len, max_len):
     class Clips(BaseModel):
         clips: list[Clip]
 
-    text = "\n".join(f"[{s['start']:.1f}-{s['end']:.1f}] {s['text']}" for s in transcript["segments"])
-    prompt = (
-        f"Видео: «{title}». Ниже расшифровка с таймкодами в секундах.\n\n{text}\n\n"
-        f"Выбери {count} самых цепляющих фрагментов для коротких вертикальных видео "
-        f"(YouTube Shorts / Reels / TikTok). Каждый фрагмент — законченная мысль длиной "
-        f"{min_len}–{max_len} секунд, начинается с сильной фразы-крючка, границы совпадают "
-        f"с границами фраз из расшифровки. Фрагменты не должны пересекаться. Для каждого дай "
-        f"короткий кликабельный заголовок (до 70 символов), описание в 1–2 предложения и 3–6 "
-        f"хэштегов без символа #. Пиши на языке видео."
-    )
+    text = "\n".join(f"#{i} [{s['start']:.1f}–{s['end']:.1f}] {s['text']}" for i, s in enumerate(sentences))
+    prompt = f"""Видео: «{title}». Ниже расшифровка, разбитая на пронумерованные предложения с таймкодами в секундах.
+
+{text}
+
+Выбери до {count} фрагментов для коротких вертикальных видео (Shorts / Reels / TikTok). Фрагмент задаётся номерами первого и последнего предложения (включительно), длина {min_len}–{max_len} секунд по таймкодам.
+
+Главное требование — каждый фрагмент должен быть понятен зрителю, который не видел остального видео:
+- Начало: первое предложение само по себе вводит тему или цепляет (вопрос, сильное утверждение, начало истории). Не начинай с предложения, которое продолжает предыдущую мысль или ссылается на сказанное раньше («и поэтому», «как я уже говорил», «это», «вот он» без пояснения, ответ на вопрос, которого нет во фрагменте).
+- Конец: последнее предложение завершает мысль — вывод, ответ, кульминация, панчлайн. Не обрывай на «и вот…», на перечислении или до ответа на поставленный вопрос.
+- Внутри: одна цельная мысль или история, без резких переходов на другую тему.
+
+Лучше вернуть меньше фрагментов, чем включить фрагмент, который логически не начинается или не заканчивается. Фрагменты не пересекаются.
+
+Для каждого фрагмента: why — одной фразой, чем он начинается и чем завершается; title — кликабельный заголовок до 70 символов; description — 1–2 предложения; hashtags — 3–6 хэштегов без «#». Пиши на языке видео."""
+
     client = anthropic.Anthropic()
     response = client.messages.parse(
         model="claude-opus-5-5",
         max_tokens=16000,
+        output_config={"effort": "high"},
         messages=[{"role": "user", "content": prompt}],
         output_format=Clips,
     )
     if response.stop_reason == "refusal" or response.parsed_output is None:
         raise RuntimeError(f"Claude не вернул фрагменты (stop_reason={response.stop_reason})")
-    return [c.model_dump() for c in response.parsed_output.clips]
+
+    clips, used = [], set()
+    for c in response.parsed_output.clips:
+        a, b = c.first_sentence, c.last_sentence
+        if not (0 <= a <= b < len(sentences)) or used & set(range(a, b + 1)):
+            print(f"  пропущен некорректный фрагмент #{a}–#{b}")
+            continue
+        start, end = clip_bounds(sentences, a, b, duration)
+        if not (min_len - 5 <= end - start <= max_len + 15):
+            print(f"  пропущен фрагмент #{a}–#{b}: длина {end - start:.0f} c вне диапазона")
+            continue
+        used |= set(range(a, b + 1))
+        clips.append({"start": start, "end": end, "title": c.title, "description": c.description,
+                      "hashtags": c.hashtags, "why": c.why,
+                      "text": " ".join(s["text"] for s in sentences[a:b + 1])})
+    return sorted(clips, key=lambda c: c["start"])
 
 
 def parse_time(s):
@@ -112,20 +168,43 @@ def parse_time(s):
     return sec
 
 
-def pick_clips_manual(spec, title):
+def pick_clips_manual(spec, title, sentences, duration):
+    """Ручные таймкоды; если есть расшифровка — подтягиваются к ближайшим границам предложений."""
     clips = []
     for i, rng in enumerate(spec.split(","), 1):
-        a, b = rng.split("-")
-        clips.append({"start": parse_time(a), "end": parse_time(b),
+        a, b = (parse_time(x) for x in rng.split("-"))
+        if sentences:
+            first = min(range(len(sentences)), key=lambda k: abs(sentences[k]["start"] - a))
+            last = min(range(first, len(sentences)), key=lambda k: abs(sentences[k]["end"] - b))
+            a, b = clip_bounds(sentences, first, last, duration)
+        clips.append({"start": a, "end": b,
                       "title": f"{title} — часть {i}", "description": title, "hashtags": ["shorts"]})
     return clips
 
 
-def pick_clips_even(duration, count, length, title):
-    step = duration / count
-    return [{"start": i * step, "end": min(i * step + length, duration),
-             "title": f"{title} — часть {i + 1}", "description": title, "hashtags": ["shorts"]}
-            for i in range(count)]
+def pick_clips_by_sentences(sentences, duration, count, min_len, max_len, title):
+    """Без ИИ: набирает подряд целые предложения до нужной длины, режет по самым длинным паузам."""
+    clips, i = [], 0
+    while i < len(sentences) and len(clips) < count:
+        best = None
+        for j in range(i, len(sentences)):
+            length = sentences[j]["end"] - sentences[i]["start"]
+            if length > max_len:
+                break
+            if length >= min_len:
+                pause = (sentences[j + 1]["start"] - sentences[j]["end"]) if j + 1 < len(sentences) else 99
+                if best is None or pause > best[1]:
+                    best = (j, pause)
+        if best is None:
+            i += 1
+            continue
+        start, end = clip_bounds(sentences, i, best[0], duration)
+        n = len(clips) + 1
+        clips.append({"start": start, "end": end, "title": f"{title} — часть {n}",
+                      "description": title, "hashtags": ["shorts"],
+                      "text": " ".join(s["text"] for s in sentences[i:best[0] + 1])})
+        i = best[0] + 1
+    return clips
 
 
 # ---------- 4. Рендер ----------
@@ -219,20 +298,20 @@ def main():
         video, title, duration = download(args.url, workdir)
     print(f"Видео: {title} ({duration / 60:.1f} мин)")
 
-    need_transcript = not args.no_subs or not (args.clips or args.no_ai)
-    transcript = transcribe(video, workdir, args.whisper, args.lang) if need_transcript else None
+    transcript = transcribe(video, workdir, args.whisper, args.lang)
+    sentences = build_sentences(transcript["words"])
 
     if args.clips:
-        clips = pick_clips_manual(args.clips, title)
+        clips = pick_clips_manual(args.clips, title, sentences, duration)
     elif args.no_ai:
-        clips = pick_clips_even(duration, args.count, args.max_len, title)
+        clips = pick_clips_by_sentences(sentences, duration, args.count, args.min_len, args.max_len, title)
     else:
-        print("Выбор лучших моментов (Claude)...")
+        print("Выбор законченных по смыслу фрагментов (Claude)...")
         try:
-            clips = pick_clips_ai(title, transcript, args.count, args.min_len, args.max_len)
+            clips = pick_clips_ai(title, sentences, duration, args.count, args.min_len, args.max_len)
         except Exception as e:  # нет ключа, сеть, отказ — не бросаем работу
-            print(f"  ИИ недоступен ({e}); режу равными кусками.")
-            clips = pick_clips_even(duration, args.count, args.max_len, title)
+            print(f"  ИИ недоступен ({e}); режу по границам предложений.")
+            clips = pick_clips_by_sentences(sentences, duration, args.count, args.min_len, args.max_len, title)
 
     results = []
     for i, clip in enumerate(clips, 1):
@@ -244,6 +323,9 @@ def main():
             subs = workdir / f"{name}.ass"
             write_subs(transcript["words"], clip["start"], clip["end"], subs)
         print(f"[{i}/{len(clips)}] {clip['start']:.0f}s–{clip['end']:.0f}s  {clip['title']}")
+        if clip.get("text"):
+            words = clip["text"].split()
+            print(f"      «{' '.join(words[:8])} … {' '.join(words[-8:])}»")
         render(video, clip, out, subs, args.layout)
         clip["file"] = str(out)
         results.append(clip)
