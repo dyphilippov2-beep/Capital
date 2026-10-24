@@ -80,7 +80,7 @@ python publish.py output/XXXXXXXXXXX/clips.json youtube,telegram public
 - Компьютер должен быть включён в это время (спящий режим задачу пропустит).
 - Уже нарезанные видео и выложенные клипы запоминаются в `output\auto_state.json`, поэтому ничего не повторяется. Если площадка трижды выдала ошибку на клипе, этот клип для неё пропускается.
 - Журнал всех запусков: `output\auto.log`.
-- Под каждым шортсом идут описание, ссылки на ваши соцсети из `SOCIAL_LINKS` и хэштеги. Ссылку на ту же соцсеть, где выходит пост, скрипт не ставит. Если `SOCIAL_LINKS` не задан, ставится только ссылка на Telegram-канал.
+- Под каждым шортсом идут описание, ссылки на ваши соцсети из `SOCIAL_LINKS` и хэштеги. Ссылку на ту же соцсеть, где выходит пост, скрипт не ставит. На GitHub по умолчанию ставятся Telegram и YouTube.
 - YouTube выкладывает через API только приватные видео, пока ваш проект в Google Cloud не прошёл проверку (audit). До этого клипы в YouTube придётся открывать вручную.
 - Ручные команды: `python auto.py status` (очередь), `python auto.py post` (выложить следующий клип сейчас), `python auto.py prepare --videos 5` (нарезать больше).
 
@@ -104,7 +104,7 @@ python publish.py output/XXXXXXXXXXX/clips.json youtube,telegram public
 
 | Имя | Пример |
 |---|---|
-| `SOCIAL_LINKS` | `Telegram: https://t.me/titanhockeylab \| YouTube: https://www.youtube.com/channel/UC8p1uw85dvpBvRMxBbYFF1A \| Rutube: https://rutube.ru/channel/23890442/` |
+| `SOCIAL_LINKS` | по умолчанию Telegram и YouTube; свой список, например `Telegram: https://t.me/titanhockeylab \| YouTube: https://www.youtube.com/channel/UC8p1uw85dvpBvRMxBbYFF1A` |
 | `PUBLISH_TO` | `telegram` (или `telegram,youtube,vk`) |
 | `YOUTUBE_CHANNEL`, `TELEGRAM_CHANNEL` | уже заданы по умолчанию для «Лаборатории хоккея ТИТАН» и @titanhockeylab |
 
