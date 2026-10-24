@@ -92,9 +92,8 @@ def upload_youtube(clip, privacy):
 def upload_telegram(clip, _privacy):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]  # @channel_name или числовой id
-    text = f"<b>{html.escape(clip['title'])}</b>\n\n{html.escape(caption(clip, 'telegram'))}"
-    if len(text) > 1024:  # лимит подписи Telegram: жертвуем описанием, контакты оставляем
-        text = f"<b>{html.escape(clip['title'])}</b>\n\n{html.escape(caption({**clip, 'description': ''}, 'telegram'))}"
+    # В Telegram — только название ролика, без описания, ссылок и хэштегов
+    text = f"<b>{html.escape(clip['title'])}</b>"
     with open(clip["file"], "rb") as f:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendVideo",
                           data={"chat_id": chat, "caption": text[:1024], "parse_mode": "HTML",
