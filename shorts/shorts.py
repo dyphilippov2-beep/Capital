@@ -5,6 +5,7 @@
     python shorts.py "https://youtu.be/XXXX" --count 5 --upload youtube,telegram
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -48,7 +49,7 @@ def probe_duration(path):
 def transcribe(video, workdir, model_size, language):
     cache = workdir / "transcript.json"
     if cache.exists():
-        return json.loads(cache.read_text())
+        return json.loads(cache.read_text(encoding="utf-8"))
 
     from faster_whisper import WhisperModel
 
@@ -62,7 +63,7 @@ def transcribe(video, workdir, model_size, language):
         for w in seg.words or []:
             words.append({"start": w.start, "end": w.end, "text": w.word.strip()})
     data = {"segments": lines, "words": words}
-    cache.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+    cache.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return data
 
 
@@ -265,9 +266,9 @@ def slug(s):
     return re.sub(r"[^\w-]+", "_", s, flags=re.UNICODE).strip("_")[:40] or "clip"
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser(description="YouTube → вертикальные шортсы → соцсети")
-    ap.add_argument("url", help="ссылка на YouTube (или путь к локальному видео)")
+    ap.add_argument("url", help="ссылка на YouTube/Rutube (или путь к локальному видео)")
     ap.add_argument("--count", type=int, default=5, help="сколько клипов сделать")
     ap.add_argument("--min", type=int, default=20, dest="min_len", help="мин. длина клипа, сек")
     ap.add_argument("--max", type=int, default=59, dest="max_len", help="макс. длина клипа, сек")
@@ -282,8 +283,21 @@ def main():
     ap.add_argument("--upload", default="", help="куда выложить: youtube,telegram,vk")
     ap.add_argument("--privacy", default="private", choices=["private", "unlisted", "public"],
                     help="видимость на YouTube (по умолчанию private — проверить перед публикацией)")
-    args = ap.parse_args()
+    return ap
 
+
+def video_key(url):
+    """Имя рабочей папки: id видео YouTube/Rutube, иначе короткий хэш ссылки.
+
+    Своя папка у каждого видео нужна, чтобы не подхватить расшифровку от другого.
+    """
+    m = (re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", url)
+         or re.search(r"rutube\.ru/(?:video|shorts)/([0-9a-f]{32})", url))
+    return m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:12]
+
+
+def make_shorts(args):
+    """Скачивает, расшифровывает, выбирает и рендерит клипы. Возвращает список клипов."""
     out_root = Path(args.out).resolve()
     if Path(args.url).exists():
         video = Path(args.url).resolve()
@@ -291,8 +305,7 @@ def main():
         workdir = out_root / slug(title)
         workdir.mkdir(parents=True, exist_ok=True)
     else:
-        m = re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", args.url)
-        workdir = out_root / (m.group(1) if m else "video")
+        workdir = out_root / video_key(args.url)
         workdir.mkdir(parents=True, exist_ok=True)
         print("Скачивание...")
         video, title, duration = download(args.url, workdir)
@@ -330,9 +343,14 @@ def main():
         clip["file"] = str(out)
         results.append(clip)
 
-    (workdir / "clips.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
+    (workdir / "clips.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nГотово: {len(results)} клипов в {workdir}")
+    return results
 
+
+def main():
+    args = build_parser().parse_args()
+    results = make_shorts(args)
     targets = [t.strip() for t in args.upload.split(",") if t.strip()]
     if targets:
         import publish
@@ -341,4 +359,6 @@ def main():
 
 if __name__ == "__main__":
     sys.path.insert(0, str(HERE))
+    from envfile import load_env
+    load_env()
     main()
