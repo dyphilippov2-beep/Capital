@@ -35,7 +35,7 @@ jobs:
       TELEGRAM_CHANNEL: ${{ vars.TELEGRAM_CHANNEL || '@titanhockeylab' }}
       YOUTUBE_CHANNEL: ${{ vars.YOUTUBE_CHANNEL || 'https://www.youtube.com/channel/UC8p1uw85dvpBvRMxBbYFF1A' }}
       PUBLISH_TO: ${{ vars.PUBLISH_TO || 'telegram' }}
-      SOCIAL_LINKS: "${{ vars.SOCIAL_LINKS || 'Telegram: https://t.me/titanhockeylab | YouTube: https://www.youtube.com/channel/UC8p1uw85dvpBvRMxBbYFF1A' }}"
+      SOCIAL_LINKS: "${{ vars.SOCIAL_LINKS || 'Telegram: https://t.me/titanhockeylab | YouTube: https://www.youtube.com/channel/UC8p1uw85dvpBvRMxBbYFF1A | Rutube: https://rutube.ru/channel/23890442/' }}"
       SOCIAL_CTA: ${{ vars.SOCIAL_CTA }}
       VK_GROUP_ID: ${{ vars.VK_GROUP_ID }}
       YOUTUBE_PRIVACY: ${{ vars.YOUTUBE_PRIVACY || 'public' }}
