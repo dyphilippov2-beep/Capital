@@ -224,7 +224,7 @@ def main():
 
     p = sub.add_parser("post", help="выложить следующие клипы из очереди")
     p.add_argument("--to", default=os.environ.get("PUBLISH_TO", "telegram"),
-                   help="площадки через запятую: telegram,youtube,vk")
+                   help="площадки через запятую: telegram,youtube,vk,rutube")
     p.add_argument("--per-run", type=int, default=1, help="сколько клипов выложить за запуск")
     p.add_argument("--privacy", default=os.environ.get("YOUTUBE_PRIVACY", "public"),
                    choices=["private", "unlisted", "public"])

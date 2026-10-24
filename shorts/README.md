@@ -80,7 +80,7 @@ python publish.py output/XXXXXXXXXXX/clips.json youtube,telegram public
 - Компьютер должен быть включён в это время (спящий режим задачу пропустит).
 - Уже нарезанные видео и выложенные клипы запоминаются в `output\auto_state.json`, поэтому ничего не повторяется. Если площадка трижды выдала ошибку на клипе, этот клип для неё пропускается.
 - Журнал всех запусков: `output\auto.log`.
-- Под каждым шортсом идут описание, ссылки на ваши соцсети из `SOCIAL_LINKS` и хэштеги. Ссылку на ту же соцсеть, где выходит пост, скрипт не ставит. На GitHub по умолчанию ставятся Telegram, YouTube и Rutube.
+- Под каждым шортсом идут описание клипа, общий блок из `shorts/footer.txt` (запись в секцию, телефоны, ссылки на все соцсети) и хэштеги. Строку со ссылкой на ту соцсеть, где выходит пост, скрипт убирает. Чтобы поменять текст для всех будущих шортсов, отредактируйте `footer.txt`.
 - YouTube выкладывает через API только приватные видео, пока ваш проект в Google Cloud не прошёл проверку (audit). До этого клипы в YouTube придётся открывать вручную.
 - Ручные команды: `python auto.py status` (очередь), `python auto.py post` (выложить следующий клип сейчас), `python auto.py prepare --videos 5` (нарезать больше).
 
@@ -99,13 +99,13 @@ python publish.py output/XXXXXXXXXXX/clips.json youtube,telegram public
 | `YTDLP_COOKIES` | содержимое файла cookies.txt из браузера, где вы вошли в YouTube (расширение «Get cookies.txt LOCALLY»). Без него YouTube обычно не даёт облаку скачивать видео |
 | `YOUTUBE_TOKEN_JSON` | по желанию: содержимое `shorts/youtube_token.json` после первой выкладки на ПК, если нужно выкладывать и в YouTube |
 | `VK_TOKEN` | по желанию, для VK |
+| `RUTUBE_LOGIN`, `RUTUBE_PASSWORD` | по желанию, для Rutube: логин и пароль от Rutube. Rutube забирает ролик по ссылке, поэтому файл сначала кладётся в релиз `shorts-files` этого репозитория (репозиторий должен быть публичным) |
 
 Вкладка **Variables**:
 
 | Имя | Пример |
 |---|---|
-| `SOCIAL_LINKS` | по умолчанию Telegram, YouTube и Rutube; свой список, например `Telegram: https://t.me/titanhockeylab \| YouTube: https://www.youtube.com/channel/UC8p1uw85dvpBvRMxBbYFF1A \| Rutube: https://rutube.ru/channel/23890442/` |
-| `PUBLISH_TO` | `telegram` (или `telegram,youtube,vk`) |
+| `PUBLISH_TO` | `telegram` (или `telegram,youtube,vk,rutube`) |
 | `YOUTUBE_CHANNEL`, `TELEGRAM_CHANNEL` | уже заданы по умолчанию для «Лаборатории хоккея ТИТАН» и @titanhockeylab |
 
 Запустить вручную: вкладка Actions → Shorts autopilot → Run workflow. Там можно выбрать `post` (выложить клип), `prepare` (нарезать видео), `top` (список самых популярных видео) или `status` (очередь). Результат виден в журнале запуска.

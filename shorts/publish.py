@@ -6,7 +6,10 @@ import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -14,38 +17,31 @@ import requests
 HERE = Path(__file__).resolve().parent
 
 
-# Ссылка в SOCIAL_LINKS считается «своей» для площадки, если содержит этот адрес:
+# Строка подписи считается «своей» для площадки, если содержит этот адрес:
 # в посте не нужна ссылка на ту же соцсеть, где его читают.
-OWN_HOST = {"telegram": "t.me/", "youtube": "youtube.com", "vk": "vk.com"}
+OWN_HOST = {"telegram": ("t.me/",), "youtube": ("youtube.com",), "vk": ("vk.ru/", "vk.com/"), "rutube": ("rutube.ru/",)}
+FOOTER = HERE / "footer.txt"
+BASE_TAGS = ["shorts", "хоккей"]
 
 
-def social_links(platform=None):
-    """Строки со ссылками на соцсети для подписи под каждым клипом.
-
-    SOCIAL_LINKS в .env: пары «Название: ссылка» через « | », например
-    SOCIAL_LINKS=Telegram: https://t.me/titanhockeylab | Rutube: https://rutube.ru/channel/23890442/
-    Если не задано — только ссылка на TELEGRAM_CHANNEL.
-    """
-    raw = os.environ.get("SOCIAL_LINKS", "")
-    links = [x.strip() for x in raw.split("|") if x.strip()]
-    if not links and os.environ.get("TELEGRAM_CHANNEL", "").startswith("@"):
-        links = [f"Telegram: https://t.me/{os.environ['TELEGRAM_CHANNEL'][1:]}"]
-    own = OWN_HOST.get(platform)
-    return [x for x in links if not (own and own in x)]
+def footer(platform=None):
+    """Общий блок под каждым шортсом (запись в секцию и соцсети) из footer.txt."""
+    if not FOOTER.exists():
+        return ""
+    own = OWN_HOST.get(platform, ())
+    lines = FOOTER.read_text(encoding="utf-8").strip().splitlines()
+    return "\n".join(x for x in lines if not any(h in x for h in own))
 
 
-def caption(clip, platform=None, with_shorts_tag=False):
-    """Описание + призыв и ссылки на соцсети + хэштеги."""
-    tags = list(clip.get("hashtags") or [])
-    if with_shorts_tag and "shorts" not in [t.lower() for t in tags]:
-        tags.append("shorts")
-    tag_line = " ".join("#" + t.lstrip("#").replace(" ", "") for t in tags)
-    links = social_links(platform)
-    links_block = ""
-    if links:
-        cta = os.environ.get("SOCIAL_CTA", "Подписывайтесь, там ещё больше полезного:")
-        links_block = "\n".join([cta, *links])
-    return "\n\n".join(p for p in (clip.get("description", ""), links_block, tag_line) if p)
+def caption(clip, platform=None):
+    """Описание клипа + общий блок из footer.txt + хэштеги."""
+    tags = []
+    for t in BASE_TAGS + list(clip.get("hashtags") or []):
+        t = "#" + t.lstrip("#").replace(" ", "")
+        if t.lower() not in [x.lower() for x in tags]:
+            tags.append(t)
+    parts = (clip.get("description", ""), footer(platform), " ".join(tags))
+    return "\n\n".join(p for p in parts if p)
 
 
 # ---------- YouTube ----------
@@ -77,7 +73,7 @@ def upload_youtube(clip, privacy):
         "snippet": {
             # YouTube не принимает угловые скобки в заголовке и описании
             "title": re.sub(r"[<>]", "", clip["title"])[:100],
-            "description": re.sub(r"[<>]", "", caption(clip, "youtube", with_shorts_tag=True))[:5000],
+            "description": re.sub(r"[<>]", "", caption(clip, "youtube"))[:5000],
             "tags": clip.get("hashtags", []),
             "categoryId": "22",
         },
@@ -97,6 +93,8 @@ def upload_telegram(clip, _privacy):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]  # @channel_name или числовой id
     text = f"<b>{html.escape(clip['title'])}</b>\n\n{html.escape(caption(clip, 'telegram'))}"
+    if len(text) > 1024:  # лимит подписи Telegram: жертвуем описанием, контакты оставляем
+        text = f"<b>{html.escape(clip['title'])}</b>\n\n{html.escape(caption({**clip, 'description': ''}, 'telegram'))}"
     with open(clip["file"], "rb") as f:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendVideo",
                           data={"chat_id": chat, "caption": text[:1024], "parse_mode": "HTML",
@@ -127,7 +125,40 @@ def upload_vk(clip, _privacy):
     return f"https://vk.com/video{owner}_{save['response']['video_id']}"
 
 
-UPLOADERS = {"youtube": upload_youtube, "telegram": upload_telegram, "vk": upload_vk}
+# ---------- Rutube ----------
+# Rutube принимает видео только по ссылке на файл, поэтому в GitHub Actions клип
+# сначала кладётся в релиз репозитория (RUTUBE_RELEASE), а Rutube скачивает его оттуда.
+
+def public_file_url(path):
+    repo, tag = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("RUTUBE_RELEASE", "shorts-files")
+    if not repo or not shutil.which("gh"):
+        raise RuntimeError("Rutube работает только в GitHub Actions: нужна публичная ссылка на файл")
+    name = re.sub(r"[^\w.-]+", "_", Path(path).name.encode("ascii", "ignore").decode()) or "clip.mp4"
+    name = f"{int(time.time())}_{name}"
+    staged = Path(path).with_name(name)
+    shutil.copy(path, staged)
+    if subprocess.run(["gh", "release", "view", tag], capture_output=True).returncode != 0:
+        subprocess.run(["gh", "release", "create", tag, "--title", "Shorts files",
+                        "--notes", "Файлы шортсов для загрузки в Rutube"], check=True)
+    subprocess.run(["gh", "release", "upload", tag, str(staged), "--clobber"], check=True)
+    return f"https://github.com/{repo}/releases/download/{tag}/{name}"
+
+
+def upload_rutube(clip, privacy):
+    api = "https://rutube.ru/api"
+    auth = requests.post(f"{api}/accounts/token_auth/", timeout=60,
+                         data={"username": os.environ["RUTUBE_LOGIN"], "password": os.environ["RUTUBE_PASSWORD"]})
+    auth.raise_for_status()
+    headers = {"Authorization": f"Token {auth.json()['token']}"}
+    data = {"url": public_file_url(clip["file"]), "title": clip["title"][:100],
+            "description": caption(clip, "rutube")[:5000], "is_hidden": privacy != "public", "is_short": True}
+    r = requests.post(f"{api}/video/", headers=headers, data=data, timeout=120)
+    if not r.ok:
+        raise RuntimeError(f"Rutube {r.status_code}: {r.text[:300]}")
+    return f"rutube video {r.json().get('video_id')}"
+
+
+UPLOADERS = {"youtube": upload_youtube, "telegram": upload_telegram, "vk": upload_vk, "rutube": upload_rutube}
 
 
 def publish_all(clips, targets, privacy="private"):
