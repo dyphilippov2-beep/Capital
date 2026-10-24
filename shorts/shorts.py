@@ -18,22 +18,60 @@ HERE = Path(__file__).resolve().parent
 
 # ---------- 1. Скачивание ----------
 
-def download(url, workdir):
+VIDEO_FORMAT = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b"
+
+
+def ytdlp_opts(**extra):
+    opts = {"quiet": True, "noprogress": True}
+    # Файл cookies.txt из браузера: без него YouTube часто не отдаёт видео облачным серверам
+    if os.environ.get("YTDLP_COOKIES") and Path(os.environ["YTDLP_COOKIES"]).exists():
+        opts["cookiefile"] = os.environ["YTDLP_COOKIES"]
+    opts.update(extra)
+    return opts
+
+
+def download(url, workdir, audio_only=False):
     import yt_dlp
 
-    opts = {
-        "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b",
-        "merge_output_format": "mp4",
-        "outtmpl": str(workdir / "source.%(ext)s"),
-        "quiet": True,
-        "noprogress": True,
-    }
+    name = "audio" if audio_only else "source"
+    opts = ytdlp_opts(outtmpl=str(workdir / f"{name}.%(ext)s"),
+                      format="ba/b" if audio_only else VIDEO_FORMAT)
+    if not audio_only:
+        opts["merge_output_format"] = "mp4"
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
-    path = workdir / "source.mp4"
+    path = workdir / f"{name}.mp4"
     if not path.exists():
-        path = next(workdir.glob("source.*"))
+        path = next(workdir.glob(f"{name}.*"))
     return path, info.get("title", ""), info.get("duration") or probe_duration(path)
+
+
+def download_section(url, start, end, path):
+    """Скачивает только нужный кусок видео (для облака: не тянуть весь ролик ради минуты)."""
+    import yt_dlp
+    from yt_dlp.utils import download_range_func
+
+    opts = ytdlp_opts(format=VIDEO_FORMAT, merge_output_format="mp4",
+                      outtmpl=str(path.with_suffix(".%(ext)s")),
+                      download_ranges=download_range_func([], [(start, end)]),
+                      force_keyframes_at_cuts=True)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.extract_info(url, download=True)
+    return path if path.exists() else next(path.parent.glob(path.stem + ".*"))
+
+
+def render_from_source(clip, workdir, layout="blur", subs=True):
+    """Рендер клипа, у которого есть только таймкоды и ссылка: качает кусок и делает mp4."""
+    name = f"{slug(clip['title'])}_{int(clip['start'])}"
+    part = download_section(clip["source_url"], clip["start"], clip["end"], workdir / f"{name}_src.mp4")
+    sub_path = None
+    if subs and clip.get("words"):
+        sub_path = workdir / f"{name}.ass"
+        write_subs(clip["words"], clip["start"], clip["end"], sub_path)
+    out = workdir / f"{name}.mp4"
+    render(part, {"start": 0, "end": clip["end"] - clip["start"]}, out, sub_path, layout)
+    part.unlink(missing_ok=True)
+    return out
 
 
 def probe_duration(path):
@@ -296,8 +334,12 @@ def video_key(url):
     return m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:12]
 
 
-def make_shorts(args):
-    """Скачивает, расшифровывает, выбирает и рендерит клипы. Возвращает список клипов."""
+def make_shorts(args, render_clips=True):
+    """Скачивает, расшифровывает, выбирает и рендерит клипы. Возвращает список клипов.
+
+    render_clips=False (режим для облака): качается только звук, клипы не рендерятся,
+    а в каждый клип записываются ссылка на видео и слова для субтитров.
+    """
     out_root = Path(args.out).resolve()
     if Path(args.url).exists():
         video = Path(args.url).resolve()
@@ -308,7 +350,7 @@ def make_shorts(args):
         workdir = out_root / video_key(args.url)
         workdir.mkdir(parents=True, exist_ok=True)
         print("Скачивание...")
-        video, title, duration = download(args.url, workdir)
+        video, title, duration = download(args.url, workdir, audio_only=not render_clips)
     print(f"Видео: {title} ({duration / 60:.1f} мин)")
 
     transcript = transcribe(video, workdir, args.whisper, args.lang)
@@ -325,6 +367,14 @@ def make_shorts(args):
         except Exception as e:  # нет ключа, сеть, отказ — не бросаем работу
             print(f"  ИИ недоступен ({e}); режу по границам предложений.")
             clips = pick_clips_by_sentences(sentences, duration, args.count, args.min_len, args.max_len, title)
+
+    if not render_clips:
+        for clip in clips:
+            clip["end"] = min(clip["end"], duration)
+            clip["source_url"] = args.url
+            clip["words"] = [w for w in transcript["words"] if w["end"] > clip["start"] and w["start"] < clip["end"]]
+        video.unlink(missing_ok=True)
+        return clips
 
     results = []
     for i, clip in enumerate(clips, 1):

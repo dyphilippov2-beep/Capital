@@ -4,9 +4,11 @@
     python auto.py prepare            # нарезать самые популярные ещё не обработанные видео в очередь
     python auto.py post               # выложить следующий клип из очереди
     python auto.py status             # что в очереди и что уже вышло
+    python auto.py top                # самые популярные видео канала
 
 Канал и площадки берутся из .env (YOUTUBE_CHANNEL, PUBLISH_TO), их можно переопределить флагами.
-Запуск по расписанию настраивает schedule.bat (Планировщик заданий Windows).
+По расписанию запускается из GitHub Actions (.github/workflows/shorts.yml)
+или из Планировщика заданий Windows (schedule.bat).
 """
 import argparse
 import json
@@ -19,8 +21,10 @@ sys.path.insert(0, str(HERE))
 
 from envfile import load_env  # noqa: E402
 
-STATE = HERE / "output" / "auto_state.json"
+# В облаке (GitHub Actions) состояние хранится в репозитории, путь задаёт AUTO_STATE
+STATE = Path(os.environ.get("AUTO_STATE") or HERE / "output" / "auto_state.json")
 MAX_ATTEMPTS = 3  # после стольких ошибок площадка для клипа пропускается
+PREPARE_DEFAULTS = {}  # заполняется в main(): параметры prepare для запуска из post
 
 
 # ---------- состояние ----------
@@ -43,9 +47,10 @@ def save_state(state):
 def channel_videos_url(channel):
     """Ссылка на вкладку «Видео» канала. Можно дать ссылку на канал или на любое его видео."""
     import yt_dlp
+    from shorts import ytdlp_opts
 
     if "/watch" in channel or "youtu.be/" in channel or "/shorts/" in channel:
-        with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+        with yt_dlp.YoutubeDL(ytdlp_opts(skip_download=True)) as ydl:
             info = ydl.extract_info(channel, download=False)
         channel = info.get("channel_url") or info["uploader_url"]
     channel = channel.rstrip("/")
@@ -58,9 +63,10 @@ def channel_videos_url(channel):
 def popular_videos(channel, min_duration):
     """Все видео канала, отсортированные по просмотрам (сначала популярные)."""
     import yt_dlp
+    from shorts import ytdlp_opts
 
     url = channel_videos_url(channel)
-    with yt_dlp.YoutubeDL({"quiet": True, "extract_flat": "in_playlist"}) as ydl:
+    with yt_dlp.YoutubeDL(ytdlp_opts(extract_flat="in_playlist")) as ydl:
         info = ydl.extract_info(url, download=False)
     videos = []
     for e in info.get("entries") or []:
@@ -106,12 +112,13 @@ def cmd_prepare(args):
             "--out", str(HERE / "output"), *(["--lang", args.lang] if args.lang else []),
         ])
         try:
-            clips = shorts.make_shorts(opts)
+            # В облаке клипы не рендерятся заранее: хранятся таймкоды, видео качается при публикации
+            clips = shorts.make_shorts(opts, render_clips=not args.cloud)
         except Exception as e:  # одно битое видео не должно останавливать остальные
             print(f"  ОШИБКА: {e}")
             continue
         for c in clips:
-            c.update(video_id=v["id"], posted={}, fails={})
+            c.update(id=f"{v['id']}:{c['start']:.1f}", video_id=v["id"], posted={}, fails={})
         groups.append(clips)
         # Пока шла нарезка, post мог выложить клипы: перечитываем состояние перед записью.
         state = load_state()
@@ -124,20 +131,41 @@ def cmd_prepare(args):
     print(f"\nВ очередь добавлено клипов: {sum(len(g) for g in groups)}")
 
 
+def postable(clip):
+    return Path(clip.get("file", "")).is_file() or bool(clip.get("source_url"))
+
+
 def cmd_post(args):
     import publish
+    import shorts
 
     targets = [t.strip() for t in args.to.split(",") if t.strip()]
+
+    def todo(state, t):
+        return [c for c in state["queue"]
+                if t not in c["posted"] and c["fails"].get(t, 0) < MAX_ATTEMPTS and postable(c)]
+
     state = load_state()
+    if args.prepare_if_empty and not any(todo(state, t) for t in targets):
+        print("Очередь пуста, нарезаю следующее популярное видео.")
+        cmd_prepare(argparse.Namespace(**{**PREPARE_DEFAULTS, "videos": 1, "cloud": args.cloud}))
+        state = load_state()
+
     # Каждая площадка идёт по очереди сама: ошибка YouTube не задерживает Telegram.
     tried = 0
+    tmp = HERE / "output" / "render"
     for t in targets:
-        batch = [c for c in state["queue"]
-                 if t not in c["posted"] and c["fails"].get(t, 0) < MAX_ATTEMPTS and Path(c["file"]).exists()]
-        for clip in batch[: args.per_run]:
+        for clip in todo(state, t)[: args.per_run]:
             tried += 1
             print(f"Публикую в {t}: {clip['title']}")
-            link = publish.publish_all([clip], [t], privacy=args.privacy).get((0, t))
+            try:
+                if not Path(clip.get("file", "")).is_file():
+                    tmp.mkdir(parents=True, exist_ok=True)
+                    clip["file"] = str(shorts.render_from_source(clip, tmp, layout=args.layout))
+                link = publish.publish_all([clip], [t], privacy=args.privacy).get((0, t))
+            except Exception as e:  # не скачалось или не отрендерилось
+                print(f"  ОШИБКА подготовки клипа: {e}")
+                link = None
             if link:
                 clip["posted"][t] = link
             else:
@@ -147,9 +175,22 @@ def cmd_post(args):
 
     # Записываем отметки в свежую копию состояния (prepare мог за это время дописать очередь).
     fresh = load_state()
-    by_file = {c["file"]: c for c in state["queue"]}
-    fresh["queue"] = [by_file.get(c["file"], c) for c in fresh["queue"]]
+    by_id = {clip_id(c): c for c in state["queue"]}
+    fresh["queue"] = [by_id.get(clip_id(c), c) for c in fresh["queue"]]
     save_state(fresh)
+
+
+def clip_id(c):
+    return c.get("id") or c["file"]
+
+
+def cmd_top(args):
+    if not args.channel:
+        sys.exit("Не указан канал: добавьте YOUTUBE_CHANNEL=... в .env или флаг --channel")
+    done = load_state()["videos"]
+    for i, v in enumerate(popular_videos(args.channel, 0)[: args.n], 1):
+        mark = "  [нарезано]" if v["id"] in done else ""
+        print(f"{i:2d}. {v['title']} — {v['views']} просмотров  {v['url']}{mark}")
 
 
 def cmd_status(args):
@@ -166,6 +207,8 @@ def cmd_status(args):
 def main():
     load_env()
     ap = argparse.ArgumentParser(description="Автонарезка популярных видео канала и публикация по расписанию")
+    ap.add_argument("--cloud", action="store_true", default=os.environ.get("AUTO_CLOUD") == "1",
+                    help="режим для GitHub Actions: не хранить видео, качать кусок при публикации")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("prepare", help="нарезать самые популярные ещё не обработанные видео")
@@ -177,6 +220,7 @@ def main():
     p.add_argument("--lang", default="ru")
     p.add_argument("--min-duration", type=int, default=120, help="пропускать видео короче, сек")
     p.set_defaults(func=cmd_prepare)
+    PREPARE_DEFAULTS.update({a.dest: a.default for a in p._actions if a.dest != "help"})
 
     p = sub.add_parser("post", help="выложить следующие клипы из очереди")
     p.add_argument("--to", default=os.environ.get("PUBLISH_TO", "telegram"),
@@ -184,7 +228,15 @@ def main():
     p.add_argument("--per-run", type=int, default=1, help="сколько клипов выложить за запуск")
     p.add_argument("--privacy", default=os.environ.get("YOUTUBE_PRIVACY", "public"),
                    choices=["private", "unlisted", "public"])
+    p.add_argument("--layout", default="blur", choices=["crop", "blur"])
+    p.add_argument("--prepare-if-empty", action="store_true",
+                   help="если клипов не осталось, сначала нарезать следующее видео")
     p.set_defaults(func=cmd_post)
+
+    p = sub.add_parser("top", help="самые популярные видео канала")
+    p.add_argument("--channel", default=os.environ.get("YOUTUBE_CHANNEL"))
+    p.add_argument("-n", type=int, default=20, help="сколько показать")
+    p.set_defaults(func=cmd_top)
 
     p = sub.add_parser("status", help="показать очередь")
     p.set_defaults(func=cmd_status)

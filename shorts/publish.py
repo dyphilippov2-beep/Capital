@@ -2,8 +2,10 @@
 
 Ключи берутся из переменных окружения (см. README.md).
 """
+import html
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -12,26 +14,38 @@ import requests
 HERE = Path(__file__).resolve().parent
 
 
-def telegram_cta():
-    """Призыв подписаться на Telegram-канал для подписей в YouTube и VK.
+# Ссылка в SOCIAL_LINKS считается «своей» для площадки, если содержит этот адрес:
+# в посте не нужна ссылка на ту же соцсеть, где его читают.
+OWN_HOST = {"telegram": "t.me/", "youtube": "youtube.com", "vk": "vk.com"}
 
-    Текст задаётся TELEGRAM_CTA; по умолчанию строится из TELEGRAM_CHANNEL.
+
+def social_links(platform=None):
+    """Строки со ссылками на соцсети для подписи под каждым клипом.
+
+    SOCIAL_LINKS в .env: пары «Название: ссылка» через « | », например
+    SOCIAL_LINKS=Telegram: https://t.me/titanhockeylab | Rutube: https://rutube.ru/channel/23890442/
+    Если не задано — только ссылка на TELEGRAM_CHANNEL.
     """
-    if "TELEGRAM_CTA" in os.environ:
-        return os.environ["TELEGRAM_CTA"]
-    channel = os.environ.get("TELEGRAM_CHANNEL", "")
-    if channel.startswith("@"):
-        return f"Больше разборов в Telegram: https://t.me/{channel[1:]}"
-    return ""
+    raw = os.environ.get("SOCIAL_LINKS", "")
+    links = [x.strip() for x in raw.split("|") if x.strip()]
+    if not links and os.environ.get("TELEGRAM_CHANNEL", "").startswith("@"):
+        links = [f"Telegram: https://t.me/{os.environ['TELEGRAM_CHANNEL'][1:]}"]
+    own = OWN_HOST.get(platform)
+    return [x for x in links if not (own and own in x)]
 
 
-def caption(clip, with_shorts_tag=False, with_cta=False):
+def caption(clip, platform=None, with_shorts_tag=False):
+    """Описание + призыв и ссылки на соцсети + хэштеги."""
     tags = list(clip.get("hashtags") or [])
     if with_shorts_tag and "shorts" not in [t.lower() for t in tags]:
         tags.append("shorts")
     tag_line = " ".join("#" + t.lstrip("#").replace(" ", "") for t in tags)
-    cta = telegram_cta() if with_cta else ""
-    return "\n\n".join(p for p in (clip.get("description", ""), cta, tag_line) if p)
+    links = social_links(platform)
+    links_block = ""
+    if links:
+        cta = os.environ.get("SOCIAL_CTA", "Подписывайтесь, там ещё больше полезного:")
+        links_block = "\n".join([cta, *links])
+    return "\n\n".join(p for p in (clip.get("description", ""), links_block, tag_line) if p)
 
 
 # ---------- YouTube ----------
@@ -61,8 +75,9 @@ def upload_youtube(clip, privacy):
     yt = youtube_service()
     body = {
         "snippet": {
-            "title": clip["title"][:100],
-            "description": caption(clip, with_shorts_tag=True, with_cta=True),
+            # YouTube не принимает угловые скобки в заголовке и описании
+            "title": re.sub(r"[<>]", "", clip["title"])[:100],
+            "description": re.sub(r"[<>]", "", caption(clip, "youtube", with_shorts_tag=True))[:5000],
             "tags": clip.get("hashtags", []),
             "categoryId": "22",
         },
@@ -81,7 +96,7 @@ def upload_youtube(clip, privacy):
 def upload_telegram(clip, _privacy):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]  # @channel_name или числовой id
-    text = f"<b>{clip['title']}</b>\n\n{caption(clip)}"
+    text = f"<b>{html.escape(clip['title'])}</b>\n\n{html.escape(caption(clip, 'telegram'))}"
     with open(clip["file"], "rb") as f:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendVideo",
                           data={"chat_id": chat, "caption": text[:1024], "parse_mode": "HTML",
@@ -98,7 +113,7 @@ def upload_vk(clip, _privacy):
     token = os.environ["VK_TOKEN"]
     group = os.environ.get("VK_GROUP_ID")  # без минуса; пусто — на свою страницу
     params = {"access_token": token, "v": "5.199", "name": clip["title"][:128],
-              "description": caption(clip, with_cta=True), "wallpost": 1}
+              "description": caption(clip, "vk"), "wallpost": 1}
     if group:
         params["group_id"] = group
     save = requests.post("https://api.vk.com/method/video.save", data=params, timeout=60).json()
