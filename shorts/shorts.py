@@ -279,7 +279,15 @@ def ass_time(t):
 
 def write_subs(words, start, end, path, words_per_line=3):
     """Крупные субтитры по 2–4 слова, как в типичных шортсах."""
-    chunk = [w for w in words if w["end"] > start and w["start"] < end]
+    chunk = []
+    for w in words:
+        if not (w["end"] > start and w["start"] < end):
+            continue
+        # Whisper отдаёт «где -то», «самое -самое» отдельными словами: склеиваем через дефис
+        if chunk and w["text"].startswith("-"):
+            chunk[-1] = {**chunk[-1], "end": w["end"], "text": chunk[-1]["text"] + w["text"]}
+        else:
+            chunk.append(w)
     events = []
     for i in range(0, len(chunk), words_per_line):
         group = chunk[i:i + words_per_line]

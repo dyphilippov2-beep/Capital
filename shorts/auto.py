@@ -181,11 +181,19 @@ def cmd_transcribe(args):
         print(f"  расшифровано предложений: {len(sentences)}")
 
 
+def clip_words(t, start, end, fixes=None):
+    """Слова для субтитров клипа; fixes — исправления ошибок распознавания {"было": "стало"}."""
+    fixes = fixes or {}
+    return [{**w, "text": fixes.get(w["text"], w["text"])}
+            for w in t["words"] if w["end"] > start and w["start"] < end]
+
+
 def cmd_enqueue(args=None):
     """Ставит в очередь моменты из state/picks/<id>.json.
 
     Формат файла: список {"first": N, "last": M, "title": ..., "description": ..., "hashtags": [...]},
-    где first/last — номера предложений из расшифровки (включительно).
+    где first/last — номера предложений из расшифровки (включительно); необязательное
+    "fixes": {"слово": "исправление"} правит ошибки распознавания в субтитрах.
     """
     import shorts
 
@@ -204,7 +212,7 @@ def cmd_enqueue(args=None):
                 "hashtags": p.get("hashtags", []),
                 "text": " ".join(s["text"] for s in sentences[p["first"]:p["last"] + 1]),
                 "source_url": t["url"],
-                "words": [w for w in t["words"] if w["end"] > start and w["start"] < end],
+                "words": clip_words(t, start, end, p.get("fixes")),
                 "id": f"{vid}:{start:.1f}", "video_id": vid, "posted": {}, "fails": {},
             })
         state["videos"][vid] = {"title": t["title"], "views": t["views"], "clips": len(clips)}
@@ -229,7 +237,7 @@ def cmd_preview(args):
                 return
             start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
             clip = {"start": start, "end": end, "title": f"{path.stem}_{i:02d}", "source_url": t["url"],
-                    "words": [w for w in t["words"] if w["end"] > start and w["start"] < end]}
+                    "words": clip_words(t, start, end, p.get("fixes"))}
             print(f"Рендер: {p['title']} ({end - start:.0f} с)")
             shorts.render_from_source(clip, out)
             done += 1
