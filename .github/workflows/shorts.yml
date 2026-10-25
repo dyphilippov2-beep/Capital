@@ -12,7 +12,7 @@ on:
       command:
         description: "Что сделать"
         type: choice
-        options: [post, transcribe, top, status, prepare]
+        options: [post, transcribe, preview, top, status, prepare]
         default: post
       videos:
         description: "Сколько видео расшифровать (для transcribe)"
@@ -95,6 +95,14 @@ jobs:
             python shorts/auto.py "$CMD"
           fi
           python shorts/auto.py status
+
+      - name: Upload preview clips
+        if: github.event.inputs.command == 'preview'
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: shorts/output/preview/*.mp4
+          retention-days: 7
 
       - name: Save queue to repository
         if: always()

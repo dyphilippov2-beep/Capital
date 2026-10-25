@@ -215,6 +215,26 @@ def cmd_enqueue(args=None):
         save_state(state)
 
 
+def cmd_preview(args):
+    """Рендерит подобранные, но ещё не выложенные моменты в output/preview, чтобы их посмотреть."""
+    import shorts
+
+    out = HERE / "output" / "preview"
+    out.mkdir(parents=True, exist_ok=True)
+    done = 0
+    for path in sorted(PICKS.glob("*.json")) if PICKS.exists() else []:
+        t = json.loads((TRANSCRIPTS / f"{path.stem}.json").read_text(encoding="utf-8"))
+        for i, p in enumerate(json.loads(path.read_text(encoding="utf-8")), 1):
+            if done >= args.n:
+                return
+            start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
+            clip = {"start": start, "end": end, "title": f"{path.stem}_{i:02d}", "source_url": t["url"],
+                    "words": [w for w in t["words"] if w["end"] > start and w["start"] < end]}
+            print(f"Рендер: {p['title']} ({end - start:.0f} с)")
+            shorts.render_from_source(clip, out)
+            done += 1
+
+
 def postable(clip):
     return Path(clip.get("file", "")).is_file() or bool(clip.get("source_url"))
 
@@ -326,6 +346,10 @@ def main():
                    help="модель whisper: small быстрее, medium точнее")
     p.add_argument("--min-duration", type=int, default=120, help="пропускать видео короче, сек")
     p.set_defaults(func=cmd_transcribe)
+
+    p = sub.add_parser("preview", help="отрендерить подобранные моменты для просмотра (output/preview)")
+    p.add_argument("-n", type=int, default=6, help="сколько моментов")
+    p.set_defaults(func=cmd_preview)
 
     p = sub.add_parser("enqueue", help="поставить в очередь моменты из state/picks")
     p.set_defaults(func=cmd_enqueue)
