@@ -22,7 +22,9 @@ VIDEO_FORMAT = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b"
 
 
 def ytdlp_opts(**extra):
-    opts = {"quiet": True, "noprogress": True}
+    # Сервер GitHub в США: без этого YouTube отдаёт названия в автопереводе на английский
+    opts = {"quiet": True, "noprogress": True, "http_headers": {"Accept-Language": "ru-RU,ru;q=0.9"},
+            "extractor_args": {"youtube": {"lang": ["ru"]}}}
     # Файл cookies.txt из браузера: без него YouTube часто не отдаёт видео облачным серверам
     if os.environ.get("YTDLP_COOKIES") and Path(os.environ["YTDLP_COOKIES"]).exists():
         opts["cookiefile"] = os.environ["YTDLP_COOKIES"]
