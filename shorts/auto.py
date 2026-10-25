@@ -7,6 +7,7 @@
     python auto.py top                # самые популярные видео канала
     python auto.py transcribe         # расшифровать популярные видео для ручного подбора моментов
     python auto.py enqueue            # поставить в очередь моменты, подобранные вручную (state/picks)
+    python auto.py render             # отрендерить подобранные моменты в ready/ (на ПК, см. sync.bat)
 
 Канал и площадки берутся из .env (YOUTUBE_CHANNEL, PUBLISH_TO), их можно переопределить флагами.
 По расписанию запускается из GitHub Actions (.github/workflows/shorts.yml)
@@ -28,6 +29,8 @@ STATE = Path(os.environ.get("AUTO_STATE") or HERE / "output" / "auto_state.json"
 # Ручной подбор: расшифровки видео и отобранные по ним моменты лежат рядом с состоянием
 TRANSCRIPTS = STATE.parent / "transcripts"
 PICKS = STATE.parent / "picks"
+# Готовые клипы, отрендеренные на домашнем ПК: YouTube не пускает серверы GitHub качать видео
+READY = HERE / "ready"
 MAX_ATTEMPTS = 3  # после стольких ошибок площадка для клипа пропускается
 PREPARE_DEFAULTS = {}  # заполняется в main(): параметры prepare для запуска из post
 
@@ -243,8 +246,40 @@ def cmd_preview(args):
             done += 1
 
 
-def postable(clip):
-    return Path(clip.get("file", "")).is_file() or bool(clip.get("source_url"))
+def ready_path(clip):
+    return READY / f"{clip.get('video_id', '')}_{clip['start']:.1f}.mp4"
+
+
+def cmd_render(args):
+    """Рендерит подобранные моменты в shorts/ready (запускается на ПК, см. sync.bat)."""
+    import shorts
+
+    READY.mkdir(exist_ok=True)
+    posted = {c["id"] for c in load_state()["queue"] if c["posted"]}
+    tmp = HERE / "output" / "render"
+    tmp.mkdir(parents=True, exist_ok=True)
+    for path in sorted(PICKS.glob("*.json")) if PICKS.exists() else []:
+        vid = path.stem
+        t = json.loads((TRANSCRIPTS / f"{vid}.json").read_text(encoding="utf-8"))
+        for p in json.loads(path.read_text(encoding="utf-8")):
+            start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
+            clip = {"start": start, "end": end, "title": p["title"], "source_url": t["url"],
+                    "video_id": vid, "words": clip_words(t, start, end, p.get("fixes"))}
+            out = ready_path(clip)
+            if out.exists() or f"{vid}:{start:.1f}" in posted:
+                continue
+            print(f"Рендер: {p['title']} ({end - start:.0f} с)")
+            try:
+                shorts.render_from_source(clip, tmp, layout=args.layout).replace(out)
+            except Exception as e:  # один битый момент не должен останавливать остальные
+                print(f"  ОШИБКА: {e}")
+
+
+def postable(clip, cloud=False):
+    if Path(clip.get("file", "")).is_file() or ready_path(clip).is_file():
+        return True
+    # В облаке видео с YouTube не качается: выкладываем только готовое из shorts/ready
+    return bool(clip.get("source_url")) and not cloud
 
 
 def cmd_post(args):
@@ -255,7 +290,7 @@ def cmd_post(args):
 
     def todo(state, t):
         return [c for c in state["queue"]
-                if t not in c["posted"] and c["fails"].get(t, 0) < MAX_ATTEMPTS and postable(c)]
+                if t not in c["posted"] and c["fails"].get(t, 0) < MAX_ATTEMPTS and postable(c, args.cloud)]
 
     cmd_enqueue()
     state = load_state()
@@ -272,7 +307,9 @@ def cmd_post(args):
             tried += 1
             print(f"Публикую в {t}: {clip['title']}")
             try:
-                if not Path(clip.get("file", "")).is_file():
+                if ready_path(clip).is_file():
+                    clip["file"] = str(ready_path(clip))
+                elif not Path(clip.get("file", "")).is_file():
                     tmp.mkdir(parents=True, exist_ok=True)
                     clip["file"] = str(shorts.render_from_source(clip, tmp, layout=args.layout))
                 link = publish.publish_all([clip], [t], privacy=args.privacy).get((0, t))
@@ -283,6 +320,11 @@ def cmd_post(args):
                 clip["posted"][t] = link
             else:
                 clip["fails"][t] = clip["fails"].get(t, 0) + 1
+    # Выложенный везде клип больше не нужен: не раздуваем репозиторий
+    for clip in state["queue"]:
+        if all(t in clip["posted"] for t in targets) and ready_path(clip).is_file():
+            ready_path(clip).unlink()
+            clip.pop("file", None)
     if not tried:
         print("Нечего выкладывать: нужны новые подобранные моменты (transcribe → picks) или prepare.")
 
@@ -358,6 +400,10 @@ def main():
     p = sub.add_parser("preview", help="отрендерить подобранные моменты для просмотра (output/preview)")
     p.add_argument("-n", type=int, default=6, help="сколько моментов")
     p.set_defaults(func=cmd_preview)
+
+    p = sub.add_parser("render", help="отрендерить подобранные моменты в shorts/ready (на ПК)")
+    p.add_argument("--layout", default="blur", choices=["crop", "blur"])
+    p.set_defaults(func=cmd_render)
 
     p = sub.add_parser("enqueue", help="поставить в очередь моменты из state/picks")
     p.set_defaults(func=cmd_enqueue)
