@@ -10,6 +10,7 @@
 <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Мой капитал</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap">
@@ -107,6 +108,7 @@ label.f{display:grid;gap:5px;font-size:13px;color:var(--muted)}
 textarea{min-height:120px;font-size:12px;font-family:ui-monospace,Menlo,monospace}
 .btns{display:flex;flex-wrap:wrap;gap:8px}
 .btn{border:0;border-radius:10px;padding:10px 14px;background:var(--fg);color:var(--bg);font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
 .btn.ghost{background:var(--surface-2);color:var(--fg)}
 .btn.danger{background:none;color:var(--down);padding-inline:4px}
 .editrow{display:grid;grid-template-columns:1fr 110px auto;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid var(--line)}
@@ -118,6 +120,17 @@ textarea{min-height:120px;font-size:12px;font-family:ui-monospace,Menlo,monospac
 @media (max-width:380px){.grid2{grid-template-columns:1fr}}
 .note{font-size:13px;color:var(--muted);margin:0}
 .empty{padding:28px 18px;text-align:center;display:grid;gap:12px;justify-items:center}
+
+/* broker import preview */
+.diff{background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.drow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 12px;border-top:1px solid var(--line);font-size:14px}
+.drow:first-child{border-top:0}
+.drow small{color:var(--muted);font-size:12px}
+.drow .chg{text-align:right;white-space:nowrap;font-weight:600}
+.drow.add .chg{color:var(--up)} .drow.del .chg{color:var(--down)}
+.check{font-size:13px;padding:8px 12px;border-radius:10px;background:var(--accent-soft);margin:0}
+.check.bad{background:none;border:1px solid var(--down);color:var(--down)}
+details.more summary{cursor:pointer;font-size:13px;color:var(--muted)}
 
 /* news */
 .news a{color:inherit;text-decoration:none}
@@ -622,9 +635,227 @@ function viewNews(c){
   return h + `</div>`;
 }
 
+/* ---------- Broker account: update from screenshots, read right on the phone ---------- */
+
+/* Positions in the app are totals across all accounts; trades happen only on the broker account (Т-Инвестиции),
+   so a position's quantity = broker account + the other accounts below (Сбер ×2, Т-Банк, as of 11.10.2026). */
+const OTHER = {LKOH:50, TATNP:384, IRAO:69500, SNGSP:3110, TRNFP:211, SBERP:592, SBER:985, MRKU:100000, MRKP:100000,
+  LSNGP:160, SIBN:90, PMSBP:100, NVTK:70, MOEX:350, GMKN:320, T:140, BANEP:50, YDEX:10, PHOR:7, ROSN:205, NLMK:480,
+  VTBR:1106, MAGN:1560, GAZP:350, X5:38, MDMG:25, RTKMP:750, RTKM:400, CHMF:45, AFLT:760, SU26238RMFS4:2500, SU26248RMFS3:77};
+const OTHER_CASH = 10901.41;
+/* What the broker account held before the first import (11.10.2026) — positions that leave it get recomputed too */
+const BROKER_START = {AFLT:2000, VTBR:14600, GAZP:1440, SIBN:2600, DOMRF:500, IRAO:520000, X5:808, LKOH:516, MDMG:700, MOEX:6000,
+  NVTK:1200, PLZL:633, ROSN:1800, LSNGP:1200, MRKU:340000, MRKC:231000, SBERP:24131, SNGSP:22700, TATNP:2500, TRNFP:2450, T:3600,
+  SU26238RMFS4:1812, GOLD01:42, GLDRUB_TOM:44, PLTRUB_TOM:64};
+/* Broker account from the screenshots of 24.10.2026 */
+const BROKER_2410 = {at:"24.10.2026", cash:558739.31, items:{AFLT:2000, VTBR:14600, SIBN:2600, DOMRF:500, IRAO:520000,
+  X5:808, LKOH:518, MDMG:700, MOEX:8000, NVTK:1200, PLZL:650, LSNGP:1200, MRKU:340000, SBERP:24200, SNGSP:26000, TATNP:2500,
+  TRNFP:2500, T:4000, SU26238RMFS4:1812, GOLD01:42, LQDT:101318, GLDRUB_TOM:44, PLTRUB_TOM:64, SLVRUB_TOM:1700}};
+/* How to add a position the app doesn't have yet */
+const KNOWN = {
+  SLVRUB_TOM:{name:"Серебро", issuer:"Серебро", cls:"metal", unit:"г"},
+  GLDRUB_TOM:{name:"Золото", issuer:"Золото", cls:"metal", unit:"г"},
+  PLTRUB_TOM:{name:"Платина", issuer:"Платина", cls:"metal", unit:"г"},
+  LQDT:{name:"ВИМ Ликвидность", issuer:"ВИМ Инвестиции", cls:"mm"},
+  GAZP:{name:"Газпром", issuer:"Газпром", cls:"stock"}, ROSN:{name:"Роснефть", issuer:"Роснефть", cls:"stock"},
+  SBER:{name:"Сбербанк ао", issuer:"Сбербанк", cls:"stock"}, MRKC:{name:"Россети Центр", issuer:"Россети Центр", cls:"stock"}
+};
+const fmtQ = new Intl.NumberFormat("ru-RU",{maximumFractionDigits:4});
+let imp = {busy:false, msg:"", plan:null};
+
+/* Ticker by the name the broker app shows (names may be cut short on the screenshot) */
+const NAMES = [
+  [/аэрофл/, "AFLT"], [/втб/, "VTBR"], [/газпром\s*неф/, "SIBN"], [/газпром/, "GAZP"], [/дом\.?\s*рф/, "DOMRF"],
+  [/интер\s*рао/, "IRAO"], [/корпоратив|икс\s*5/, "X5"], [/лукойл/, "LKOH"], [/мать\s*и\s*дит/, "MDMG"],
+  [/московская\s*бир|мосбирж/, "MOEX"], [/новат[эе]к/, "NVTK"], [/полюс/, "PLZL"], [/ленэнерго/, "LSNGP"],
+  [/россети\s*урал/, "MRKU"], [/приволж/, "MRKP"], [/россети\s*центр/, "MRKC"], [/сбер.*прив/, "SBERP"], [/сбербанк/, "SBER"],
+  [/сургут.*-/, "SNGSP"], [/сургут/, "SNGS"], [/татнеф.*-/, "TATNP"], [/татнеф/, "TATN"], [/транснеф/, "TRNFP"],
+  [/т-?\s*технол|тинькофф/, "T"], [/роснеф/, "ROSN"], [/норильск|норникел/, "GMKN"], [/яндекс/, "YDEX"], [/фосагро/, "PHOR"],
+  [/нлмк/, "NLMK"], [/ммк|магнитогор/, "MAGN"], [/северстал/, "CHMF"], [/башнеф/, "BANEP"], [/пермэнерго/, "PMSBP"],
+  [/ростелеком.*-/, "RTKMP"], [/ростелеком/, "RTKM"],
+  [/офз\s*26238/, "SU26238RMFS4"], [/офз\s*26248/, "SU26248RMFS3"], [/селигдар/, "GOLD01"],
+  [/вим|ликвидн/, "LQDT"], [/золото/, "GLDRUB_TOM"], [/платин/, "PLTRUB_TOM"], [/серебр/, "SLVRUB_TOM"]
+];
+const numRu = s => parseFloat(String(s).replace(/[\s ]/g, "").replace(",", "."));
+
+/* "Name 1 053 900 ₽" → {name, value}. OCR sometimes glues the first digit group ("1487 980") or drops a space ("71720") */
+function splitAmount(line){
+  const m = line.match(/^(.*?(?:^|\s))((?:\d+[  ])*\d+(?:,\d+)?)\s*[₽РP]\s*$/);
+  if (!m) return null;
+  const tok = m[2].split(/[  ]+/), used = [tok.pop()];
+  while (tok.length && /^\d{3}$/.test(tok[tok.length-1])) used.unshift(tok.pop());
+  if (tok.length && /^\d{1,4}$/.test(tok[tok.length-1])) used.unshift(tok.pop());
+  return {name: (m[1] + tok.join(" ")).trim(), value: numRu(used.join(""))};
+}
+
+/* Read the text of one or more screenshots of the Т-Инвестиции portfolio list */
+function parseBroker(texts){
+  const out = {items:{}, values:{}, names:{}, unknown:[], cash:null, total:null};
+  for (const text of texts){
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++){
+      const line = lines[i];
+      if (out.total == null){ const t = line.match(/^(\d{1,3}(?:[  ]\d{3})+,\d\d)\s*[₽РP]$/); if (t){ out.total = numRu(t[1]); continue; } }
+      const a = splitAmount(line);
+      if (!a) continue;
+      const name = a.name.replace(/^[^A-Za-zА-Яа-яЁё0-9]+/, "");
+      if (!/[А-Яа-яЁёA-Za-z]{3}/.test(name)) continue;
+      const low = name.toLowerCase().replace(/ё/g, "е");
+      if (/(^|\s)рубл/.test(low)){ out.cash = a.value; continue; }
+      const q = (lines[i+1] || "").match(/(\d{1,3}(?:[  ]\d{3})+|\d+)\s*(шт|г)(?![а-яё])/);
+      if (!q) continue;
+      i++;
+      const hit = NAMES.find(([re]) => re.test(low));
+      if (!hit){ out.unknown.push({name, qty: numRu(q[1]), value: a.value}); continue; }
+      if (hit[1] in out.items) continue;  /* the same row on two overlapping screenshots */
+      out.items[hit[1]] = numRu(q[1]); out.values[hit[1]] = a.value; out.names[hit[1]] = name;
+    }
+  }
+  return out;
+}
+
+/* The app's own position for a broker ticker (coins are never touched) */
+function findPos(secid){
+  const bare = data.positions.filter(p => !p.physical);
+  return bare.find(p => p.secid === secid)
+    || (secid === "GOLD01" ? bare.find(p => /GOLD01|Селигдар/i.test(p.secid + " " + p.name)) : null);
+}
+
+/* Turn a broker-account snapshot into a list of changes to the app */
+function planImport(snap){
+  const prev = data.broker?.items || BROKER_START;
+  const ids = new Set([...Object.keys(prev), ...Object.keys(snap.items)]);
+  const rows = [], missing = [];
+  for (const id of ids){
+    const target = (snap.items[id] || 0) + (OTHER[id] || 0);
+    const p = findPos(id);
+    if (p){
+      if (Math.abs(p.qty - target) < 1e-9) continue;
+      rows.push({kind: target ? "set" : "del", id, name:p.name, from:p.qty, to:target, unit:p.unit});
+    } else if (target){
+      const meta = KNOWN[id];
+      if (meta) rows.push({kind:"add", id, name:meta.name, to:target, unit:meta.unit, meta});
+      else missing.push(id);
+    }
+  }
+  let cash = null;
+  if (typeof snap.cash === "number"){
+    const to = Math.round((snap.cash + OTHER_CASH) * 100) / 100;
+    if (Math.abs((data.cash?.broker || 0) - to) >= 0.01) cash = {from: data.cash?.broker || 0, to};
+  }
+  return {snap, rows, cash, missing};
+}
+
+function applyPlan(plan){
+  for (const r of plan.rows){
+    if (r.kind === "set") findPos(r.id).qty = r.to;
+    else if (r.kind === "del") data.positions.splice(data.positions.indexOf(findPos(r.id)), 1);
+    else data.positions.push({secid:r.id, name:r.meta.name, issuer:r.meta.issuer, cls:r.meta.cls, qty:r.to, ...(r.meta.unit ? {unit:r.meta.unit} : {})});
+  }
+  if (plan.cash){ data.cash = data.cash || {}; data.cash.broker = plan.cash.to; }
+  data.broker = {at: plan.snap.at, items: plan.snap.items};
+  save();
+}
+
+const qtyTxt = (v, unit) => v == null ? "—" : fmtQ.format(v) + (unit === "г" ? " г" : "");
+
+function importCard(){
+  const last = data.broker ? `Последнее обновление: ${esc(data.broker.at)}.` : "Ещё не обновлялся из скриншотов.";
+  let h = `<h2>Брокерский счёт</h2><div class="card">
+    <p class="note">${last} Количество в приложении = брокерский счёт + остальные счета (они не меняются).</p>`;
+  if (imp.plan) return h + planHtml(imp.plan) + `</div>`;
+  h += `<label class="f">Скриншоты списка позиций из Т-Инвестиций (можно несколько, с перекрытием)
+    <input type="file" id="shots" accept="image/*" multiple ${imp.busy ? "disabled" : ""}></label>`;
+  if (imp.busy) h += `<p class="note" id="impMsg">${esc(imp.msg)}</p>`;
+  else if (imp.msg) h += `<p class="check bad">${esc(imp.msg)}</p>`;
+  if (!imp.busy && !data.broker) h += `<div class="btns"><button class="btn ghost" type="button" id="snap2410">Применить счёт на ${BROKER_2410.at}</button></div>`;
+  h += `<details class="more"><summary>Вставить список текстом</summary>
+    <p class="note" style="margin:8px 0">Каждая строка: тикер и количество, рубли — строкой «RUB сумма». Например:<br>SBERP 24200<br>GLDRUB_TOM 44<br>RUB 558739.31</p>
+    <textarea id="brokerTxt" aria-label="Позиции брокерского счёта"></textarea>
+    <div class="btns" style="margin-top:8px"><button class="btn ghost" type="button" id="brokerTxtBtn">Показать изменения</button></div>
+  </details>`;
+  return h + `</div>`;
+}
+
+function planHtml(plan){
+  const s = plan.snap;
+  let h = "";
+  if (s.total && s.values){
+    const sum = Object.values(s.values).reduce((a,b)=>a+b,0) + (s.cash || 0);
+    const ok = Math.abs(sum - s.total) <= Math.max(5, s.total * 0.001);
+    h += `<p class="check ${ok ? "" : "bad"}">${ok
+      ? `Сумма позиций сходится с итогом счёта (${rub(s.total)}) — ничего не пропущено.`
+      : `Сумма позиций ${rub(sum)}, а итог счёта ${rub(s.total)}. Похоже, не все позиции распознались — проверьте список или добавьте скриншоты.`}</p>`;
+  }
+  if (s.unknown?.length) h += `<p class="check bad">Не узнал бумаги: ${s.unknown.map(u => `${esc(u.name)} (${fmtQ.format(u.qty)})`).join(", ")}. Их можно добавить вручную ниже.</p>`;
+  if (!plan.rows.length && !plan.cash && !plan.missing.length){
+    return h + `<p class="note">Всё уже совпадает, менять нечего.</p><div class="btns"><button class="btn ghost" type="button" id="impCancel">Закрыть</button></div>`;
+  }
+  const gone = plan.rows.filter(r => r.kind === "del" || (r.kind === "set" && r.to < r.from && !s.items[r.id])).length;
+  if (gone > 3) h += `<p class="check bad">${gone} позиций пропали из брокерского счёта. Если вы их не продавали, значит в список попали не все бумаги — нажмите «Отмена».</p>`;
+  h += `<div class="diff">`;
+  for (const r of plan.rows){
+    const chg = r.kind === "add" ? `+ ${qtyTxt(r.to, r.unit)}` : r.kind === "del" ? "удалить" : `${qtyTxt(r.from, r.unit)} → ${qtyTxt(r.to, r.unit)}`;
+    h += `<div class="drow ${r.kind}"><span>${esc(r.name)}<br><small>${esc(r.id)}${r.kind === "add" ? " · новая позиция" : ""}</small></span><span class="chg num">${chg}</span></div>`;
+  }
+  if (plan.cash) h += `<div class="drow"><span>Рубли на брокерских счетах<br><small>${rub(s.cash)} здесь + ${rub(OTHER_CASH)} на других счетах</small></span><span class="chg num">${rub(plan.cash.from)} → ${rub(plan.cash.to)}</span></div>`;
+  h += `</div>`;
+  if (plan.missing.length) h += `<p class="check bad">Не знаю, как добавить: ${plan.missing.map(esc).join(", ")}. Добавьте их вручную ниже.</p>`;
+  h += `<div class="btns"><button class="btn" type="button" id="impApply">Применить</button><button class="btn ghost" type="button" id="impCancel">Отмена</button></div>`;
+  return h;
+}
+
+/* Text recognition runs in the browser (tesseract.js); the Russian model downloads once and stays on the phone */
+let ocrLib = null;
+function loadOcr(){
+  return ocrLib ||= new Promise((ok, fail) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+    s.onload = () => ok(window.Tesseract); s.onerror = () => { ocrLib = null; fail(new Error("load")); };
+    document.head.appendChild(s);
+  });
+}
+function impStatus(t){ imp.msg = t; const el = document.getElementById("impMsg"); if (el) el.textContent = t; }
+
+async function readShots(files){
+  files = [...files]; if (!files.length) return;
+  imp = {busy:true, msg:"Загружаю распознавание текста… первый раз до минуты", plan:null};
+  render();
+  let worker;
+  try {
+    const T = await loadOcr();
+    let n = 0;
+    worker = await T.createWorker("rus", 1, {logger: m => {
+      if (m.status === "recognizing text") impStatus(`Читаю скриншот ${n} из ${files.length}… ${Math.round(m.progress*100)}%`);
+      else if (/load/.test(m.status)) impStatus("Загружаю распознавание текста… первый раз до минуты");
+    }});
+    const texts = [];
+    for (const f of files){ n++; texts.push((await worker.recognize(f)).data.text); }
+    const r = parseBroker(texts);
+    if (!Object.keys(r.items).length) throw new Error("empty");
+    imp = {busy:false, msg:"", plan: planImport({at: new Date().toLocaleDateString("ru-RU"), ...r})};
+  } catch(e){
+    imp = {busy:false, plan:null, msg: e.message === "empty" ? "На скриншотах не нашлось позиций. Нужен список «Брокерский счёт» из Т-Инвестиций."
+      : e.message === "load" ? "Не загрузилось распознавание текста — нужен интернет при первом запуске." : "Не получилось прочитать скриншоты. Попробуйте ещё раз."};
+  } finally { worker?.terminate(); }
+  render();
+}
+
+function parseBrokerText(t){
+  const snap = {at: new Date().toLocaleDateString("ru-RU"), items:{}, cash:null};
+  for (const line of t.split(/\n/)){
+    const m = line.trim().match(/^([A-Za-zА-Яа-я0-9_]+)\s+([\d\s.,]+)$/);
+    if (!m) continue;
+    const id = m[1].toUpperCase(), v = num(m[2]);
+    if (id === "RUB" || id === "РУБ") snap.cash = v; else if (v > 0) snap.items[id] = v;
+  }
+  return snap;
+}
+
 function viewMore(){
   const cash = data.cash || {};
-  let h = `<h2>Кэш</h2><div class="card">
+  let h = importCard();
+  h += `<h2>Кэш</h2><div class="card">
     <div class="grid2">
       <label class="f">Наличные, ₽<input id="cashHand" inputmode="decimal" value="${cash.hand||""}" placeholder="0"></label>
       <label class="f">На брокерских счетах, ₽<input id="cashBroker" inputmode="decimal" value="${cash.broker||""}" placeholder="0"></label>
@@ -683,7 +914,7 @@ const num = s => { const v = parseFloat(String(s).replace(/\s/g,"").replace(",",
 function load(obj){
   if (!obj || !Array.isArray(obj.positions)) throw new Error("В файле нет списка позиций");
   for (const p of obj.positions) if (!p.secid || !CLS[p.cls] || typeof p.qty !== "number") throw new Error("Ошибка в позиции " + (p.name || p.secid || "?"));
-  data = {version:1, positions:obj.positions, cash:obj.cash || {broker:0,hand:0}, coinPct: obj.coinPct ?? 100};
+  data = {version:1, positions:obj.positions, cash:obj.cash || {broker:0,hand:0}, coinPct: obj.coinPct ?? 100, ...(obj.broker ? {broker:obj.broker} : {})};
   save(); tab = "issuers"; store.set(TKEY, tab); render(); refresh(); toast("Портфель загружен");
 }
 
@@ -694,6 +925,18 @@ document.addEventListener("click", async e => {
   if (t.dataset.iss){ const n = t.dataset.iss; open.has(n) ? open.delete(n) : open.add(n); render(); return; }
   if (t.dataset.cls){ selCls = t.dataset.cls; render(); return; }
   if (t.id === "refreshBtn"){ refresh(); if (tab === "income") loadIncome(true); return; }
+  if (t.id === "snap2410"){ imp = {busy:false, msg:"", plan: planImport(BROKER_2410)}; render(); return; }
+  if (t.id === "brokerTxtBtn"){
+    const snap = parseBrokerText(document.getElementById("brokerTxt").value);
+    if (!Object.keys(snap.items).length){ toast("Не нашёл ни одной строки «тикер количество»"); return; }
+    imp = {busy:false, msg:"", plan: planImport(snap)}; render(); return;
+  }
+  if (t.id === "impCancel"){ imp = {busy:false, msg:"", plan:null}; render(); return; }
+  if (t.id === "impApply"){
+    const n = imp.plan.rows.length + (imp.plan.cash ? 1 : 0);
+    applyPlan(imp.plan); imp = {busy:false, msg:"", plan:null};
+    render(); refresh(); toast(`Обновлено позиций: ${n}`); return;
+  }
   if (t.id === "incomeReload"){ const p = loadIncome(true); render(); await p; return; }
   if (t.dataset.del){
     const i = +t.dataset.del, p = data.positions[i];
@@ -717,7 +960,8 @@ document.addEventListener("click", async e => {
 
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.classList.contains("qty")){ data.positions[+t.dataset.idx].qty = num(t.value); save(); toast("Сохранено"); renderSummary(compute()); }
+  if (t.id === "shots"){ readShots(t.files); }
+  else if (t.classList.contains("qty")){ data.positions[+t.dataset.idx].qty = num(t.value); save(); toast("Сохранено"); renderSummary(compute()); }
   else if (t.id === "cashHand" || t.id === "cashBroker"){ data.cash = data.cash || {}; data.cash[t.id === "cashHand" ? "hand" : "broker"] = num(t.value); save(); toast("Сохранено"); renderSummary(compute()); }
   else if (t.id === "coinPct"){ data.coinPct = num(t.value) || 100; save(); toast("Сохранено"); renderSummary(compute()); }
   else if (t.id === "fileIn" && t.files[0]){
@@ -740,6 +984,9 @@ document.addEventListener("submit", e => {
 /* Refresh whenever the app comes back to the screen */
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 window.addEventListener("pageshow", ev => { if (ev.persisted) refresh(); });
+
+/* Works as an installed app and opens without the network (prices then come from the last update) */
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
 
 render();
 refresh();
