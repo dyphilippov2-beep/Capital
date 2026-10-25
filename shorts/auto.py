@@ -156,16 +156,21 @@ def cmd_transcribe(args):
     TRANSCRIPTS.mkdir(parents=True, exist_ok=True)
     todo = [v for v in popular_videos(args.channel, args.min_duration)
             if v["id"] not in state["videos"] and not (TRANSCRIPTS / f"{v['id']}.json").exists()]
+    # Сначала скачиваем звук всех видео, потом расшифровываем: расшифровка идёт долго,
+    # а YouTube может перестать принимать cookies, пока она работает.
+    audios = []
     for v in todo[: args.videos]:
-        print(f"\n=== {v['title']} ({v['views']} просмотров)")
+        print(f"Скачиваю: {v['title']} ({v['views']} просмотров)")
         workdir = HERE / "output" / v["id"]
         workdir.mkdir(parents=True, exist_ok=True)
         try:
-            audio, title, duration = shorts.download(v["url"], workdir, audio_only=True)
-            words = shorts.transcribe(audio, workdir, args.whisper, args.lang)["words"]
+            audios.append((v, workdir, *shorts.download(v["url"], workdir, audio_only=True)))
         except Exception as e:  # одно битое видео не должно останавливать остальные
             print(f"  ОШИБКА: {e}")
-            continue
+
+    for v, workdir, audio, title, duration in audios:
+        print(f"\n=== {v['title']}")
+        words = shorts.transcribe(audio, workdir, args.whisper, args.lang)["words"]
         audio.unlink(missing_ok=True)
         sentences = shorts.build_sentences(words)
         data = {**v, "title": title or v["title"], "duration": duration, "sentences": sentences, "words": words}
