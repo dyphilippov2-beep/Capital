@@ -65,22 +65,28 @@ def channel_videos_url(channel):
     return channel + "/videos"
 
 
-def popular_videos(channel, min_duration):
-    """Все видео канала, отсортированные по просмотрам (сначала популярные)."""
+def channel_listing(url, lang):
     import yt_dlp
     from shorts import ytdlp_opts
 
+    opts = ytdlp_opts(extract_flat="in_playlist", extractor_args={"youtube": {"lang": [lang]}},
+                      http_headers={"Accept-Language": lang})
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        return [e for e in ydl.extract_info(url, download=False).get("entries") or [] if e and e.get("id")]
+
+
+def popular_videos(channel, min_duration):
+    """Все видео канала, отсортированные по просмотрам (сначала популярные)."""
     url = channel_videos_url(channel)
-    with yt_dlp.YoutubeDL(ytdlp_opts(extract_flat="in_playlist")) as ydl:
-        info = ydl.extract_info(url, download=False)
+    # Просмотры берём из английской страницы: «29 тыс. просмотров» yt-dlp читает как 29.
+    # Названия — из русской, иначе сервер в США получает автоперевод на английский.
+    titles = {e["id"]: e.get("title") for e in channel_listing(url, "ru")}
     videos = []
-    for e in info.get("entries") or []:
-        if not e or not e.get("id"):
-            continue
+    for e in channel_listing(url, "en"):
         duration = e.get("duration")
         if duration and duration < min_duration:
             continue  # слишком короткое, резать нечего
-        videos.append({"id": e["id"], "title": e.get("title") or e["id"],
+        videos.append({"id": e["id"], "title": titles.get(e["id"]) or e.get("title") or e["id"],
                        "views": e.get("view_count") or 0,
                        "url": f"https://www.youtube.com/watch?v={e['id']}"})
     return sorted(videos, key=lambda v: v["views"], reverse=True)

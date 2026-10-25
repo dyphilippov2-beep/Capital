@@ -1,4 +1,5 @@
-yt-dlp
+# [default] ставит решатель JS-проверок YouTube (yt-dlp-ejs), без него доступны только картинки
+yt-dlp[default]
 faster-whisper
 anthropic
 pydantic
