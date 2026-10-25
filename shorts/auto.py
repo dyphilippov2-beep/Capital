@@ -241,7 +241,8 @@ def cmd_preview(args):
             if done >= args.n:
                 return
             start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
-            clip = {"start": start, "end": end, "title": f"{path.stem}_{i:02d}", "headline": p.get("headline", HEADLINE),
+            clip = {"start": start, "end": end, "title": f"{path.stem}_{i:02d}",
+                    "headline": p.get("headline", HEADLINE), "topic": p.get("topic"),
                     "source_url": t["url"],
                     "words": clip_words(t, start, end, p.get("fixes"))}
             print(f"Рендер: {p['title']} ({end - start:.0f} с)")
@@ -266,7 +267,8 @@ def cmd_render(args):
         t = json.loads((TRANSCRIPTS / f"{vid}.json").read_text(encoding="utf-8"))
         for p in json.loads(path.read_text(encoding="utf-8")):
             start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
-            clip = {"start": start, "end": end, "title": p["title"], "headline": p.get("headline", HEADLINE),
+            clip = {"start": start, "end": end, "title": p["title"],
+                    "headline": p.get("headline", HEADLINE), "topic": p.get("topic"),
                     "source_url": t["url"], "video_id": vid,
                     "words": clip_words(t, start, end, p.get("fixes"))}
             out = ready_path(clip)

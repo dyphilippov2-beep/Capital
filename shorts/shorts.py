@@ -69,7 +69,8 @@ def render_from_source(clip, workdir, layout="blur", subs=True):
     sub_path = None
     if subs and clip.get("words"):
         sub_path = workdir / f"{name}.ass"
-        write_subs(clip["words"], clip["start"], clip["end"], sub_path, title=clip.get("headline"))
+        write_subs(clip["words"], clip["start"], clip["end"], sub_path,
+                   title=clip.get("headline"), topic=clip.get("topic"))
     out = workdir / f"{name}.mp4"
     render(part, {"start": 0, "end": clip["end"] - clip["start"]}, out, sub_path, layout)
     part.unlink(missing_ok=True)
@@ -265,8 +266,9 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,78,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,80,80,330,1
-Style: Title,Arial,74,&H0000D7FF,&H0000D7FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,70,70,0,1
+Style: Default,Arial,80,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,2,2,80,80,430,1
+Style: Title,Arial,100,&H0000D7FF,&H0000D7FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,8,3,2,60,60,0,1
+Style: Topic,Arial,62,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -278,8 +280,11 @@ def ass_time(t):
     return f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{t % 60:05.2f}"
 
 
-def write_subs(words, start, end, path, words_per_line=3, title=None):
-    """Крупные субтитры по 2–4 слова, как в типичных шортсах; title — заголовок над видео."""
+def write_subs(words, start, end, path, words_per_line=3, title=None, topic=None):
+    """Крупные субтитры по 2–4 слова, как в типичных шортсах.
+
+    title — жёлтый заголовок над видео, topic — белая строка под ним (тема ролика).
+    """
     chunk = []
     for w in words:
         if not (w["end"] > start and w["start"] < end):
@@ -295,12 +300,16 @@ def write_subs(words, start, end, path, words_per_line=3, title=None):
         text = " ".join(w["text"] for w in group).replace("{", "(").replace("}", ")")
         events.append(f"Dialogue: 0,{ass_time(group[0]['start'] - start)},"
                       f"{ass_time(group[-1]['end'] - start)},Default,,0,0,0,,{text.upper()}")
-    if title:
-        # Заголовок на весь ролик, на размытом фоне над видео (видео занимает y≈656–1264)
-        title = title.replace("{", "(").replace("}", ")")
-        events.insert(0, f"Dialogue: 1,{ass_time(0)},{ass_time(end - start)},Title,,0,0,0,,"
-                         f"{{\\an2\\pos(540,600)}}{title.upper()}")
+    # Заголовок и тема на весь ролик, на размытом фоне над видео (видео занимает y≈656–1264)
+    for style, text, y in (("Title", title, 520 if topic else 600), ("Topic", topic, 615)):
+        if text:
+            text = text.replace("{", "(").replace("}", ")").upper()
+            events.insert(0, f"Dialogue: 1,{ass_time(0)},{ass_time(end - start)},{style},,0,0,0,,"
+                             f"{{\\an2\\pos(540,{y})}}{text}")
     path.write_text(ASS_HEADER + "\n".join(events) + "\n", encoding="utf-8")
+
+
+LOGO = Path(__file__).resolve().parent / "logo.png"
 
 
 def render(video, clip, out_path, subs_path, layout):
@@ -310,12 +319,18 @@ def render(video, clip, out_path, subs_path, layout):
               "boxblur=30:5[bg];[b]scale=1080:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2")
     else:
         vf = "crop=ih*9/16:ih,scale=1080:1920"
+    inputs = ["-ss", f"{clip['start']:.2f}", "-to", f"{clip['end']:.2f}", "-i", str(video.resolve())]
+    vf = "[0:v]" + vf
+    if LOGO.exists():
+        # Логотип школы в правом верхнем углу
+        inputs += ["-i", str(LOGO)]
+        vf += "[v];[1:v]scale=250:-1[logo];[v][logo]overlay=W-w-40:50"
     if subs_path:
         vf += f",ass={subs_path.name}"
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-ss", f"{clip['start']:.2f}", "-to", f"{clip['end']:.2f}", "-i", str(video.resolve()),
-        "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "ffmpeg", "-y", "-loglevel", "error", *inputs,
+        "-filter_complex", vf + "[out]", "-map", "[out]", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out_path.name,
     ]
     # cwd = папка клипа, чтобы путь к .ass не надо было экранировать для ffmpeg
