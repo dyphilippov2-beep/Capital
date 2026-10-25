@@ -95,7 +95,8 @@ def transcribe(video, workdir, model_size, language):
     from faster_whisper import WhisperModel
 
     print(f"Расшифровка речи (whisper {model_size})...")
-    model = WhisperModel(model_size, device="auto", compute_type="int8")
+    # WHISPER_DEVICE=cpu, если видеокарта есть, а библиотек CUDA (cublas) на ПК нет
+    model = WhisperModel(model_size, device=os.environ.get("WHISPER_DEVICE", "auto"), compute_type="int8")
     segments, _ = model.transcribe(str(video), language=language, word_timestamps=True, vad_filter=True)
     words = []
     lines = []
