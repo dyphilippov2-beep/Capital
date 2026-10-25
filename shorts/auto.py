@@ -6,6 +6,7 @@
     python auto.py status             # что в очереди и что уже вышло
     python auto.py top                # самые популярные видео канала
     python auto.py transcribe         # расшифровать популярные видео для ручного подбора моментов
+    python auto.py transcribe --url ССЫЛКА  # расшифровать конкретный ролик
     python auto.py enqueue            # поставить в очередь моменты, подобранные вручную (state/picks)
     python auto.py render             # отрендерить подобранные моменты в ready/ (на ПК, см. sync.bat)
 
@@ -155,16 +156,28 @@ def cmd_transcribe(args):
     """
     import shorts
 
-    if not args.channel:
-        sys.exit("Не указан канал: добавьте YOUTUBE_CHANNEL=... в .env или флаг --channel")
     state = load_state()
     TRANSCRIPTS.mkdir(parents=True, exist_ok=True)
-    todo = [v for v in popular_videos(args.channel, args.min_duration)
-            if v["id"] not in state["videos"] and not (TRANSCRIPTS / f"{v['id']}.json").exists()]
+    if args.url:
+        # Конкретные ролики по ссылкам, а не самые популярные
+        import yt_dlp
+
+        todo = []
+        with yt_dlp.YoutubeDL(shorts.ytdlp_opts(skip_download=True)) as ydl:
+            for url in args.url:
+                info = ydl.extract_info(url, download=False)
+                todo.append({"id": info["id"], "title": info.get("title") or info["id"],
+                             "views": info.get("view_count") or 0,
+                             "url": f"https://www.youtube.com/watch?v={info['id']}"})
+    else:
+        if not args.channel:
+            sys.exit("Не указан канал: добавьте YOUTUBE_CHANNEL=... в .env или флаг --channel")
+        todo = [v for v in popular_videos(args.channel, args.min_duration)
+                if v["id"] not in state["videos"] and not (TRANSCRIPTS / f"{v['id']}.json").exists()]
     # Сначала скачиваем звук всех видео, потом расшифровываем: расшифровка идёт долго,
     # а YouTube может перестать принимать cookies, пока она работает.
     audios = []
-    for v in todo[: args.videos]:
+    for v in (todo if args.url else todo[: args.videos]):
         print(f"Скачиваю: {v['title']} ({v['views']} просмотров)")
         workdir = HERE / "output" / v["id"]
         workdir.mkdir(parents=True, exist_ok=True)
@@ -397,6 +410,7 @@ def main():
     p = sub.add_parser("transcribe", help="расшифровать популярные видео для ручного подбора моментов")
     p.add_argument("--channel", default=os.environ.get("YOUTUBE_CHANNEL"))
     p.add_argument("--videos", type=int, default=5, help="сколько новых видео расшифровать")
+    p.add_argument("--url", nargs="+", help="расшифровать эти ролики (ссылки YouTube) вместо популярных")
     p.add_argument("--lang", default="ru")
     p.add_argument("--whisper", default=os.environ.get("WHISPER_MODEL", "small"),
                    help="модель whisper: small быстрее, medium точнее")
