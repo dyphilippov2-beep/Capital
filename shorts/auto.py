@@ -31,6 +31,8 @@ TRANSCRIPTS = STATE.parent / "transcripts"
 PICKS = STATE.parent / "picks"
 # Готовые клипы, отрендеренные на домашнем ПК: YouTube не пускает серверы GitHub качать видео
 READY = HERE / "ready"
+# Заголовок над видео в каждом шортсе; в picks можно задать свой ("headline")
+HEADLINE = os.environ.get("SHORTS_HEADLINE", "Техника катания хоккеиста")
 MAX_ATTEMPTS = 3  # после стольких ошибок площадка для клипа пропускается
 PREPARE_DEFAULTS = {}  # заполняется в main(): параметры prepare для запуска из post
 
@@ -239,7 +241,8 @@ def cmd_preview(args):
             if done >= args.n:
                 return
             start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
-            clip = {"start": start, "end": end, "title": f"{path.stem}_{i:02d}", "source_url": t["url"],
+            clip = {"start": start, "end": end, "title": f"{path.stem}_{i:02d}", "headline": p.get("headline", HEADLINE),
+                    "source_url": t["url"],
                     "words": clip_words(t, start, end, p.get("fixes"))}
             print(f"Рендер: {p['title']} ({end - start:.0f} с)")
             shorts.render_from_source(clip, out)
@@ -263,8 +266,9 @@ def cmd_render(args):
         t = json.loads((TRANSCRIPTS / f"{vid}.json").read_text(encoding="utf-8"))
         for p in json.loads(path.read_text(encoding="utf-8")):
             start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
-            clip = {"start": start, "end": end, "title": p["title"], "source_url": t["url"],
-                    "video_id": vid, "words": clip_words(t, start, end, p.get("fixes"))}
+            clip = {"start": start, "end": end, "title": p["title"], "headline": p.get("headline", HEADLINE),
+                    "source_url": t["url"], "video_id": vid,
+                    "words": clip_words(t, start, end, p.get("fixes"))}
             out = ready_path(clip)
             if out.exists() or f"{vid}:{start:.1f}" in posted:
                 continue

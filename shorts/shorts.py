@@ -69,7 +69,7 @@ def render_from_source(clip, workdir, layout="blur", subs=True):
     sub_path = None
     if subs and clip.get("words"):
         sub_path = workdir / f"{name}.ass"
-        write_subs(clip["words"], clip["start"], clip["end"], sub_path)
+        write_subs(clip["words"], clip["start"], clip["end"], sub_path, title=clip.get("headline"))
     out = workdir / f"{name}.mp4"
     render(part, {"start": 0, "end": clip["end"] - clip["start"]}, out, sub_path, layout)
     part.unlink(missing_ok=True)
@@ -265,7 +265,8 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,78,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,80,80,520,1
+Style: Default,Arial,78,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,80,80,330,1
+Style: Title,Arial,74,&H0000D7FF,&H0000D7FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,70,70,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -277,8 +278,8 @@ def ass_time(t):
     return f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{t % 60:05.2f}"
 
 
-def write_subs(words, start, end, path, words_per_line=3):
-    """Крупные субтитры по 2–4 слова, как в типичных шортсах."""
+def write_subs(words, start, end, path, words_per_line=3, title=None):
+    """Крупные субтитры по 2–4 слова, как в типичных шортсах; title — заголовок над видео."""
     chunk = []
     for w in words:
         if not (w["end"] > start and w["start"] < end):
@@ -294,6 +295,11 @@ def write_subs(words, start, end, path, words_per_line=3):
         text = " ".join(w["text"] for w in group).replace("{", "(").replace("}", ")")
         events.append(f"Dialogue: 0,{ass_time(group[0]['start'] - start)},"
                       f"{ass_time(group[-1]['end'] - start)},Default,,0,0,0,,{text.upper()}")
+    if title:
+        # Заголовок на весь ролик, на размытом фоне над видео (видео занимает y≈656–1264)
+        title = title.replace("{", "(").replace("}", ")")
+        events.insert(0, f"Dialogue: 1,{ass_time(0)},{ass_time(end - start)},Title,,0,0,0,,"
+                         f"{{\\an2\\pos(540,600)}}{title.upper()}")
     path.write_text(ASS_HEADER + "\n".join(events) + "\n", encoding="utf-8")
 
 
