@@ -22,7 +22,9 @@ VIDEO_FORMAT = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b"
 
 
 def ytdlp_opts(**extra):
-    opts = {"quiet": True, "noprogress": True}
+    # Сервер GitHub в США: без этого YouTube отдаёт названия в автопереводе на английский
+    opts = {"quiet": True, "noprogress": True, "http_headers": {"Accept-Language": "ru-RU,ru;q=0.9"},
+            "extractor_args": {"youtube": {"lang": ["ru"]}}}
     # Файл cookies.txt из браузера: без него YouTube часто не отдаёт видео облачным серверам
     if os.environ.get("YTDLP_COOKIES") and Path(os.environ["YTDLP_COOKIES"]).exists():
         opts["cookiefile"] = os.environ["YTDLP_COOKIES"]
@@ -221,6 +223,15 @@ def pick_clips_manual(spec, title, sentences, duration):
     return clips
 
 
+def first_phrase(text, limit=70):
+    """Название клипа без ИИ: первая фраза, обрезанная по слову."""
+    text = text.strip().rstrip(".…")
+    if len(text) <= limit:
+        return text[:1].upper() + text[1:]
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut[:1].upper() + cut[1:] + "…"
+
+
 def pick_clips_by_sentences(sentences, duration, count, min_len, max_len, title):
     """Без ИИ: набирает подряд целые предложения до нужной длины, режет по самым длинным паузам."""
     clips, i = [], 0
@@ -238,8 +249,7 @@ def pick_clips_by_sentences(sentences, duration, count, min_len, max_len, title)
             i += 1
             continue
         start, end = clip_bounds(sentences, i, best[0], duration)
-        n = len(clips) + 1
-        clips.append({"start": start, "end": end, "title": f"{title} — часть {n}",
+        clips.append({"start": start, "end": end, "title": first_phrase(sentences[i]["text"]) or title,
                       "description": title, "hashtags": ["shorts"],
                       "text": " ".join(s["text"] for s in sentences[i:best[0] + 1])})
         i = best[0] + 1

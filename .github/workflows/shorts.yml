@@ -49,6 +49,11 @@ jobs:
           cache: pip
           cache-dependency-path: shorts/requirements.txt
 
+      # yt-dlp нужен JavaScript-движок, чтобы разбирать страницы YouTube
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Install ffmpeg and fonts
         run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg fonts-liberation
 
