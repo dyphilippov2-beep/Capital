@@ -33,14 +33,21 @@ def footer(platform=None):
     return "\n".join(x for x in lines if not any(h in x for h in own))
 
 
+def full_video_link(clip):
+    """Строка со ссылкой на полное видео, из которого нарезан шортс."""
+    if clip.get("video_id"):
+        return f"▶️ Смотреть полное видео: https://youtu.be/{clip['video_id']}"
+    return ""
+
+
 def caption(clip, platform=None):
-    """Описание клипа + общий блок из footer.txt + хэштеги."""
+    """Описание клипа + ссылка на полное видео + общий блок из footer.txt + хэштеги."""
     tags = []
     for t in BASE_TAGS + list(clip.get("hashtags") or []):
         t = "#" + t.lstrip("#").replace(" ", "")
         if t.lower() not in [x.lower() for x in tags]:
             tags.append(t)
-    parts = (clip.get("description", ""), footer(platform), " ".join(tags))
+    parts = (clip.get("description", ""), full_video_link(clip), footer(platform), " ".join(tags))
     return "\n\n".join(p for p in parts if p)
 
 
@@ -92,8 +99,10 @@ def upload_youtube(clip, privacy):
 def upload_telegram(clip, _privacy):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]  # @channel_name или числовой id
-    # В Telegram — только название ролика, без описания, ссылок и хэштегов
+    # В Telegram — только название ролика и ссылка на полное видео, без описания и хэштегов
     text = f"<b>{html.escape(clip['title'])}</b>"
+    if full_video_link(clip):
+        text += "\n\n" + html.escape(full_video_link(clip))
     with open(clip["file"], "rb") as f:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendVideo",
                           data={"chat_id": chat, "caption": text[:1024], "parse_mode": "HTML",
