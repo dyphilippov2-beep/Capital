@@ -310,6 +310,7 @@ def write_subs(words, start, end, path, words_per_line=3, title=None, topic=None
 
 
 LOGO = Path(__file__).resolve().parent / "logo.png"
+SPARKLES = LOGO.with_name("logo_sparkles.mov")
 
 
 def render(video, clip, out_path, subs_path, layout):
@@ -322,14 +323,13 @@ def render(video, clip, out_path, subs_path, layout):
     inputs = ["-ss", f"{clip['start']:.2f}", "-to", f"{clip['end']:.2f}", "-i", str(video.resolve())]
     vf = "[0:v]" + vf
     if LOGO.exists():
-        # Логотип школы в правом верхнем углу
-        # раз в 3 секунды по нему за 0,8 с пробегает диагональный блик
-        inputs += ["-loop", "1", "-framerate", "30", "-i", str(LOGO)]
-        shine = "(210*exp(-pow((X+0.5*Y-(mod(T,3)/0.8)*1.7*W+0.3*W)/28,2)))"
-        vf += ("[v];[1:v]scale=250:-1,format=rgba,"
-               f"geq=r='min(255,r(X,Y)+{shine})':g='min(255,g(X,Y)+{shine})':"
-               f"b='min(255,b(X,Y)+{shine})':a='alpha(X,Y)'[logo];"
-               "[v][logo]overlay=W-w-40:50:shortest=1")
+        # Логотип школы в правом верхнем углу (ширина 260, как в make_sparkles.py)
+        inputs += ["-i", str(LOGO)]
+        vf += "[v];[1:v]scale=260:-1[logo];[v][logo]overlay=W-w-40:50"
+        if SPARKLES.exists():
+            # по логотипу вспыхивают искорки: прозрачное видео на 3 с, крутится по кругу
+            inputs += ["-stream_loop", "-1", "-i", str(SPARKLES)]
+            vf += "[vl];[vl][2:v]overlay=W-w-10:20:shortest=1"
     if subs_path:
         vf += f",ass={subs_path.name}"
     cmd = [
