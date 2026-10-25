@@ -12,8 +12,11 @@ on:
       command:
         description: "Что сделать"
         type: choice
-        options: [post, prepare, top, status]
+        options: [post, transcribe, preview, top, status, prepare]
         default: post
+      videos:
+        description: "Сколько видео расшифровать (для transcribe)"
+        default: "5"
 
 permissions:
   contents: write
@@ -29,6 +32,8 @@ jobs:
     env:
       AUTO_CLOUD: "1"
       AUTO_STATE: shorts/state/auto_state.json
+      # Расшифровка читается при подборе моментов и идёт в субтитры: нужна точная модель
+      WHISPER_MODEL: medium
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       VK_TOKEN: ${{ secrets.VK_TOKEN }}
@@ -64,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: whisper-small
+          key: whisper-medium
 
       - name: Write secret files
         env:
@@ -81,20 +86,30 @@ jobs:
 
       - name: Run autopilot
         run: |
+          # Моменты для шортсов подбираются по смыслу вручную (shorts/state/picks),
+          # поэтому post не режет видео сам, а выкладывает только подобранное.
           CMD="${{ github.event.inputs.command || 'post' }}"
-          if [ "$CMD" = "post" ]; then
-            python shorts/auto.py post --prepare-if-empty
+          if [ "$CMD" = "transcribe" ]; then
+            python shorts/auto.py transcribe --videos "${{ github.event.inputs.videos || '5' }}"
           else
             python shorts/auto.py "$CMD"
           fi
           python shorts/auto.py status
+
+      - name: Upload preview clips
+        if: github.event.inputs.command == 'preview'
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: shorts/output/preview/*.mp4
+          retention-days: 7
 
       - name: Save queue to repository
         if: always()
         run: |
           git config user.name "shorts-autopilot"
           git config user.email "shorts-autopilot@users.noreply.github.com"
-          git add shorts/state/auto_state.json 2>/dev/null || exit 0
+          git add shorts/state 2>/dev/null || exit 0
           git diff --cached --quiet && exit 0
-          git commit -m "Shorts autopilot: update queue"
+          git commit -m "Shorts autopilot: update ${{ github.event.inputs.command || 'post' }}"
           git pull --rebase -q && git push

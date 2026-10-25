@@ -1,5 +1,8 @@
-yt-dlp
+# [default] ставит решатель JS-проверок YouTube (yt-dlp-ejs), без него доступны только картинки
+yt-dlp[default]
 faster-whisper
+# av 19 убрал параметр metadata_errors, на котором faster-whisper читает звук
+av<19
 anthropic
 pydantic
 requests
