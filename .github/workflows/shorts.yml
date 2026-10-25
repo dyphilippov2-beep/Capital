@@ -4,9 +4,10 @@ name: Shorts autopilot
 
 on:
   schedule:
-    # Время в UTC. Для часового пояса UTC+5: публикация в 10:00 и 19:00.
+    # Время в UTC. Для часового пояса UTC+5: публикация в 10:00 и 15:00
+    # (вечером в Telegram уже выходят шортсы из проекта «Титан Видео»).
     - cron: "0 5 * * *"
-    - cron: "0 14 * * *"
+    - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
       command:
