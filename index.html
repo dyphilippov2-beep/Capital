@@ -119,16 +119,11 @@ textarea{min-height:120px;font-size:12px;font-family:ui-monospace,Menlo,monospac
 .note{font-size:13px;color:var(--muted);margin:0}
 .empty{padding:28px 18px;text-align:center;display:grid;gap:12px;justify-items:center}
 
-/* news */
-.news a{color:inherit;text-decoration:none}
-.links{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-.links a{font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--bg)}
-
 /* tabbar */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--surface) 92%,transparent);
   -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-top:1px solid var(--line);
   padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center}
-nav.tabs div{display:grid;grid-template-columns:repeat(5,1fr);width:100%;max-width:560px}
+nav.tabs div{display:grid;grid-template-columns:repeat(4,1fr);width:100%;max-width:560px}
 .income{display:grid;gap:4px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
 .income .big{font-size:26px;font-weight:700;letter-spacing:-.01em}
 .income .split{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 14px;margin-top:8px;font-size:13px}
@@ -160,7 +155,6 @@ nav.tabs svg{width:22px;height:22px}
   <button role="tab" data-tab="issuers" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12l6 6"/></svg>Эмитенты</button>
   <button role="tab" data-tab="classes" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Активы</button>
   <button role="tab" data-tab="income" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19h16"/><path d="M6 15l4-4 3 3 5-6"/><path d="M15 8h3v3"/></svg>Доход</button>
-  <button role="tab" data-tab="news" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 9h8M8 12.5h8M8 16h5"/></svg>Новости</button>
   <button role="tab" data-tab="more" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Ещё</button>
 </div></nav>
 
@@ -185,6 +179,7 @@ const store = {
 let data = store.get(KEY) || {version:1, positions:[], cash:{broker:0, hand:0}, coinPct:100};
 let prices = store.get(PKEY) || {at:null, q:{}};
 let tab = store.get(TKEY) || "issuers";
+if (tab === "news") tab = "issuers";
 let selCls = "stock";
 let open = new Set();
 
@@ -607,21 +602,6 @@ function viewIncome(c){
   return h;
 }
 
-function viewNews(c){
-  const iss = {};
-  for (const i of c.items) if (i.cls === "stock" || i.cls === "bond") (iss[i.issuer] ||= {value:0, ids:[]}), iss[i.issuer].value += i.value, iss[i.issuer].ids.push(i.secid);
-  const list = Object.entries(iss).sort((a,b)=>b[1].value-a[1].value);
-  let h = `<h2>Новости по моим эмитентам</h2><p class="note" style="margin:-2px 0 10px">Ссылки открывают ленту новостей и обсуждений по каждой бумаге. Автоматическая лента прямо в приложении — следующий шаг.</p><div class="list news">`;
-  for (const [name, e] of list){
-    const id = e.ids.find(x=>!/^SU|^RU0/.test(x)) || e.ids[0];
-    const links = /^SU|^RU0/.test(id)
-      ? `<a href="https://smart-lab.ru/q/bonds/${encodeURIComponent(id)}/" target="_blank" rel="noopener">Smart-Lab</a>`
-      : `<a href="https://www.interfax.ru/quote/${encodeURIComponent(id)}" target="_blank" rel="noopener">Интерфакс</a><a href="https://smart-lab.ru/forum/${encodeURIComponent(id)}" target="_blank" rel="noopener">Smart-Lab</a><a href="https://www.e-disclosure.ru/poisk-po-kompaniyam?query=${encodeURIComponent(name)}" target="_blank" rel="noopener">Раскрытие</a>`;
-    h += `<div class="row"><span class="name">${esc(name)}</span><span class="links">${links}</span><span class="sub">${esc(id)} · ${pct(e.value/c.total*100)} капитала</span></div>`;
-  }
-  return h + `</div>`;
-}
-
 function viewMore(){
   const cash = data.cash || {};
   let h = `<h2>Кэш</h2><div class="card">
@@ -672,7 +652,7 @@ function render(){
   const v = document.getElementById("view");
   if (tab === "income" && data.positions.length) loadIncome();
   if (!data.positions.length && tab !== "more") v.innerHTML = viewEmpty();
-  else v.innerHTML = tab === "issuers" ? viewIssuers(c) : tab === "classes" ? viewClasses(c) : tab === "income" ? viewIncome(c) : tab === "news" ? viewNews(c) : viewMore();
+  else v.innerHTML = tab === "issuers" ? viewIssuers(c) : tab === "classes" ? viewClasses(c) : tab === "income" ? viewIncome(c) : viewMore();
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
 }
 
