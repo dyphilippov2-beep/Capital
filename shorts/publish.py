@@ -18,8 +18,13 @@ HERE = Path(__file__).resolve().parent
 
 
 # Строка подписи считается «своей» для площадки, если содержит этот адрес:
-# в посте не нужна ссылка на ту же соцсеть, где его читают.
-OWN_HOST = {"telegram": ("t.me/",), "youtube": ("youtube.com",), "vk": ("vk.ru/", "vk.com/"), "rutube": ("rutube.ru/",)}
+# в посте не нужна ссылка на тот же канал, где его читают (ссылки школы остаются).
+OWN_HOST = {
+    "telegram": ("t.me/titanhockeylab",),
+    "youtube": ("youtube.com/@titanhl",),
+    "vk": ("vk.ru/titanhockeylab", "vk.com/titanhockeylab"),
+    "rutube": ("rutube.ru/channel/23890442",),
+}
 FOOTER = HERE / "footer.txt"
 BASE_TAGS = ["shorts", "хоккей"]
 
