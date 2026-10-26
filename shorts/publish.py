@@ -166,6 +166,58 @@ def upload_rutube(clip, privacy):
     return f"rutube video {r.json().get('video_id')}"
 
 
+# ---------- Проверка доступа ----------
+# Входит на площадку и ничего не публикует: чтобы проверить ключи до включения в PUBLISH_TO.
+
+def check_telegram():
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    me = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=30).json()
+    chat = requests.get(f"https://api.telegram.org/bot{token}/getChat",
+                        params={"chat_id": os.environ["TELEGRAM_CHAT_ID"]}, timeout=30).json()
+    if not me.get("ok") or not chat.get("ok"):
+        raise RuntimeError(me.get("description") or chat.get("description"))
+    return f"бот @{me['result']['username']}, канал «{chat['result'].get('title')}»"
+
+
+def check_vk():
+    api = "https://api.vk.com/method/"
+    base = {"access_token": os.environ["VK_TOKEN"], "v": "5.199"}
+    user = requests.post(api + "users.get", data=base, timeout=30).json()
+    if "error" in user:
+        raise RuntimeError(user["error"].get("error_msg"))
+    mask = requests.post(api + "account.getAppPermissions", data=base, timeout=30).json().get("response", 0)
+    missing = [name for name, bit in (("video", 16), ("wall", 8192), ("offline", 65536)) if not mask & bit]
+    if missing:
+        raise RuntimeError(f"у ключа нет прав: {', '.join(missing)}")
+    u = user["response"][0]
+    text = f"вход как {u['first_name']} {u['last_name']}"
+    group = os.environ.get("VK_GROUP_ID")
+    if group:
+        g = requests.post(api + "groups.getById", data={**base, "group_id": group}, timeout=30).json()
+        if "error" in g:
+            raise RuntimeError(g["error"].get("error_msg"))
+        text += f", сообщество «{g['response']['groups'][0]['name']}»"
+    return text
+
+
+def check_rutube():
+    auth = requests.post("https://rutube.ru/api/accounts/token_auth/", timeout=60,
+                         data={"username": os.environ["RUTUBE_LOGIN"], "password": os.environ["RUTUBE_PASSWORD"]})
+    if not auth.ok or "token" not in auth.json():
+        raise RuntimeError(f"Rutube не пустил: {auth.status_code} {auth.text[:200]}")
+    return "вход выполнен"
+
+
+def check_youtube():
+    if not (HERE / "youtube_token.json").exists():
+        raise RuntimeError("нет YOUTUBE_TOKEN_JSON")
+    youtube_service()
+    return "ключ действует"
+
+
+CHECKERS = {"telegram": check_telegram, "vk": check_vk, "rutube": check_rutube, "youtube": check_youtube}
+
+
 UPLOADERS = {"youtube": upload_youtube, "telegram": upload_telegram, "vk": upload_vk, "rutube": upload_rutube}
 
 

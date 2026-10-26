@@ -367,6 +367,19 @@ def cmd_top(args):
         print(f"{i:2d}. {v['title']} — {v['views']} просмотров  {v['url']}{mark}")
 
 
+def cmd_check(args):
+    """Проверяет ключи площадок, ничего не публикуя."""
+    import publish
+
+    for t, check in publish.CHECKERS.items():
+        try:
+            print(f"{t}: OK, {check()}")
+        except KeyError as e:
+            print(f"{t}: не настроено (нет {e.args[0]})")
+        except Exception as e:
+            print(f"{t}: ОШИБКА, {e}")
+
+
 def cmd_status(args):
     state = load_state()
     queue = state["queue"]
@@ -432,6 +445,9 @@ def main():
     p.add_argument("--channel", default=os.environ.get("YOUTUBE_CHANNEL"))
     p.add_argument("-n", type=int, default=20, help="сколько показать")
     p.set_defaults(func=cmd_top)
+
+    p = sub.add_parser("check", help="проверить ключи площадок, ничего не публикуя")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("status", help="показать очередь")
     p.set_defaults(func=cmd_status)
