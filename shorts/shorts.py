@@ -28,6 +28,9 @@ def ytdlp_opts(**extra):
     # Файл cookies.txt из браузера: без него YouTube часто не отдаёт видео облачным серверам
     if os.environ.get("YTDLP_COOKIES") and Path(os.environ["YTDLP_COOKIES"]).exists():
         opts["cookiefile"] = os.environ["YTDLP_COOKIES"]
+    # YTDLP_NODE=путь к node.exe: решатель JS-проверок YouTube вместо deno (deno удаляет антивирус)
+    if os.environ.get("YTDLP_NODE"):
+        opts["js_runtimes"] = {"node": {"path": os.environ["YTDLP_NODE"]}}
     opts.update(extra)
     return opts
 
