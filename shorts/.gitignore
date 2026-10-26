@@ -1,4 +1,8 @@
 output/
+archive/
+.browser-profile/
+state/pc_posted.json
+pc_publish.log
 client_secret.json
 youtube_token.json
 __pycache__/

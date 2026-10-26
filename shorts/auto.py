@@ -17,6 +17,7 @@
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -32,6 +33,7 @@ TRANSCRIPTS = STATE.parent / "transcripts"
 PICKS = STATE.parent / "picks"
 # Готовые клипы, отрендеренные на домашнем ПК: YouTube не пускает серверы GitHub качать видео
 READY = HERE / "ready"
+ARCHIVE = HERE / "archive"  # копии готовых клипов на ПК для VK и Rutube (не в git)
 # Заголовок над видео в каждом шортсе; в picks можно задать свой ("headline")
 HEADLINE = os.environ.get("SHORTS_HEADLINE", "Техника катания хоккеиста")
 MAX_ATTEMPTS = 3  # после стольких ошибок площадка для клипа пропускается
@@ -290,6 +292,9 @@ def cmd_render(args):
             print(f"Рендер: {p['title']} ({end - start:.0f} с)")
             try:
                 shorts.render_from_source(clip, tmp, layout=args.layout).replace(out)
+                # Копия для pc_publish.py: из ready/ GitHub удаляет клип после публикации в Telegram
+                ARCHIVE.mkdir(exist_ok=True)
+                shutil.copy2(out, ARCHIVE / out.name)
             except Exception as e:  # один битый момент не должен останавливать остальные
                 print(f"  ОШИБКА: {e}")
 
