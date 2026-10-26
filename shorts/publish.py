@@ -52,7 +52,7 @@ def caption(clip, platform=None):
         t = "#" + t.lstrip("#").replace(" ", "")
         if t.lower() not in [x.lower() for x in tags]:
             tags.append(t)
-    parts = (clip.get("description", ""), full_video_link(clip), footer(platform), " ".join(tags))
+    parts = (full_video_link(clip), clip.get("description", ""), footer(platform), " ".join(tags))
     return "\n\n".join(p for p in parts if p)
 
 
