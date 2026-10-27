@@ -746,7 +746,9 @@
       ],
       "id": "0soAfTEPVaQ:433.6",
       "video_id": "0soAfTEPVaQ",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11077"
+      },
       "fails": {}
     },
     {
