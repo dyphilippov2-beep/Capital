@@ -638,25 +638,38 @@ function viewNews(c){
 /* ---------- Broker account: update from screenshots, read right on the phone ---------- */
 
 /* Positions in the app are totals across all accounts; trades happen only on the broker account (Т-Инвестиции),
-   so a position's quantity = broker account + the other accounts below (Сбер ×2, Т-Банк, as of 11.10.2026). */
-const OTHER = {LKOH:50, TATNP:384, IRAO:69500, SNGSP:3110, TRNFP:211, SBERP:592, SBER:985, MRKU:100000, MRKP:100000,
+   so a position's quantity = broker account + the other accounts below
+   (Сбер 423L9H2, Сбер ~700 тыс, Сбер ~208 тыс, Т-Банк — по скриншотам 31.10.2026). */
+const OTHER = {LKOH:50, TATNP:384, IRAO:69500, SNGSP:3110, TRNFP:211, SBERP:592, SBER:988, MRKU:100000, MRKP:100000,
   LSNGP:160, SIBN:90, PMSBP:100, NVTK:70, MOEX:350, GMKN:320, T:140, BANEP:50, YDEX:10, PHOR:7, ROSN:205, NLMK:480,
-  VTBR:1106, MAGN:1560, GAZP:350, X5:38, MDMG:25, RTKMP:750, RTKM:400, CHMF:45, AFLT:760, SU26238RMFS4:2500, SU26248RMFS3:77};
-const OTHER_CASH = 10901.41;
+  VTBR:1106, MAGN:1560, GAZP:350, X5:38, MDMG:25, RTKMP:750, RTKM:400, CHMF:45, AFLT:760, SU26238RMFS4:2500, SU26248RMFS3:77,
+  SBMM:166980, SPRN:9867};
+const OTHER_CASH = 10977.13;
 /* What the broker account held before the first import (11.10.2026) — positions that leave it get recomputed too */
 const BROKER_START = {AFLT:2000, VTBR:14600, GAZP:1440, SIBN:2600, DOMRF:500, IRAO:520000, X5:808, LKOH:516, MDMG:700, MOEX:6000,
   NVTK:1200, PLZL:633, ROSN:1800, LSNGP:1200, MRKU:340000, MRKC:231000, SBERP:24131, SNGSP:22700, TATNP:2500, TRNFP:2450, T:3600,
   SU26238RMFS4:1812, GOLD01:42, GLDRUB_TOM:44, PLTRUB_TOM:64};
-/* Broker account from the screenshots of 24.10.2026 */
-const BROKER_2410 = {at:"24.10.2026", cash:558739.31, items:{AFLT:2000, VTBR:14600, SIBN:2600, DOMRF:500, IRAO:520000,
-  X5:808, LKOH:518, MDMG:700, MOEX:8000, NVTK:1200, PLZL:650, LSNGP:1200, MRKU:340000, SBERP:24200, SNGSP:26000, TATNP:2500,
-  TRNFP:2500, T:4000, SU26238RMFS4:1812, GOLD01:42, LQDT:101318, GLDRUB_TOM:44, PLTRUB_TOM:64, SLVRUB_TOM:1700}};
+/* Broker account from the screenshots of 31.10.2026; hand = наличные, которые Дмитрий держит вне счетов */
+const BROKER_3110 = {at:"31.10.2026", cash:94120.58, hand:3000000, items:{AFLT:2000, VTBR:14600, SIBN:2600, DOMRF:520,
+  IRAO:520000, X5:808, LKOH:555, MDMG:700, MOEX:8000, NVTK:1200, PLZL:650, SBERP:24300, SNGSP:26900, TATNP:2500,
+  TRNFP:2600, T:4000, SU26238RMFS4:1917, GOLD01:42, TMON:3106, GLDRUB_TOM:44, PLTRUB_TOM:64, SLVRUB_TOM:5600}};
+const LATEST = BROKER_3110;
 /* How to add a position the app doesn't have yet */
 const KNOWN = {
   SLVRUB_TOM:{name:"Серебро", issuer:"Серебро", cls:"metal", unit:"г"},
   GLDRUB_TOM:{name:"Золото", issuer:"Золото", cls:"metal", unit:"г"},
   PLTRUB_TOM:{name:"Платина", issuer:"Платина", cls:"metal", unit:"г"},
   LQDT:{name:"ВИМ Ликвидность", issuer:"ВИМ Инвестиции", cls:"mm"},
+  TMON:{name:"Т-Капитал Денежный рынок", issuer:"Т-Капитал", cls:"mm"},
+  SBMM:{name:"Первая — Фонд Сберегательный", issuer:"Первая (Сбер)", cls:"mm"},
+  SPRN:{name:"Первая — Фонд Портфель лежебоки", issuer:"Первая (Сбер)", cls:"fund"},
+  MRKP:{name:"Россети Центр и Приволжье", issuer:"Россети Центр и Приволжье", cls:"stock"},
+  GMKN:{name:"Норникель", issuer:"Норникель", cls:"stock"}, YDEX:{name:"Яндекс", issuer:"Яндекс", cls:"stock"},
+  PHOR:{name:"ФосАгро", issuer:"ФосАгро", cls:"stock"}, NLMK:{name:"НЛМК", issuer:"НЛМК", cls:"stock"},
+  MAGN:{name:"ММК", issuer:"ММК", cls:"stock"}, CHMF:{name:"Северсталь", issuer:"Северсталь", cls:"stock"},
+  BANEP:{name:"Башнефть ап", issuer:"Башнефть", cls:"stock"}, PMSBP:{name:"Пермэнергосбыт ап", issuer:"Пермэнергосбыт", cls:"stock"},
+  RTKM:{name:"Ростелеком", issuer:"Ростелеком", cls:"stock"}, RTKMP:{name:"Ростелеком ап", issuer:"Ростелеком", cls:"stock"},
+  SU26248RMFS3:{name:"ОФЗ 26248", issuer:"Минфин РФ", cls:"bond"},
   GAZP:{name:"Газпром", issuer:"Газпром", cls:"stock"}, ROSN:{name:"Роснефть", issuer:"Роснефть", cls:"stock"},
   SBER:{name:"Сбербанк ао", issuer:"Сбербанк", cls:"stock"}, MRKC:{name:"Россети Центр", issuer:"Россети Центр", cls:"stock"}
 };
@@ -674,7 +687,7 @@ const NAMES = [
   [/нлмк/, "NLMK"], [/ммк|магнитогор/, "MAGN"], [/северстал/, "CHMF"], [/башнеф/, "BANEP"], [/пермэнерго/, "PMSBP"],
   [/ростелеком.*-/, "RTKMP"], [/ростелеком/, "RTKM"],
   [/офз\s*26238/, "SU26238RMFS4"], [/офз\s*26248/, "SU26248RMFS3"], [/селигдар/, "GOLD01"],
-  [/вим|ликвидн/, "LQDT"], [/золото/, "GLDRUB_TOM"], [/платин/, "PLTRUB_TOM"], [/серебр/, "SLVRUB_TOM"]
+  [/вим|ликвидн/, "LQDT"], [/денежн\S*\s*рын/, "TMON"], [/сберегат/, "SBMM"], [/лежебок/, "SPRN"], [/золото/, "GLDRUB_TOM"], [/платин/, "PLTRUB_TOM"], [/серебр/, "SLVRUB_TOM"]
 ];
 const numRu = s => parseFloat(String(s).replace(/[\s ]/g, "").replace(",", "."));
 
@@ -724,7 +737,8 @@ function findPos(secid){
 /* Turn a broker-account snapshot into a list of changes to the app */
 function planImport(snap){
   const prev = data.broker?.items || BROKER_START;
-  const ids = new Set([...Object.keys(prev), ...Object.keys(snap.items)]);
+  /* other accounts are included too, so a change in OTHER reaches the app with the next import */
+  const ids = new Set([...Object.keys(prev), ...Object.keys(snap.items), ...Object.keys(OTHER)]);
   const rows = [], missing = [];
   for (const id of ids){
     const target = (snap.items[id] || 0) + (OTHER[id] || 0);
@@ -743,7 +757,9 @@ function planImport(snap){
     const to = Math.round((snap.cash + OTHER_CASH) * 100) / 100;
     if (Math.abs((data.cash?.broker || 0) - to) >= 0.01) cash = {from: data.cash?.broker || 0, to};
   }
-  return {snap, rows, cash, missing};
+  let hand = null;
+  if (typeof snap.hand === "number" && Math.abs((data.cash?.hand || 0) - snap.hand) >= 0.01) hand = {from: data.cash?.hand || 0, to: snap.hand};
+  return {snap, rows, cash, hand, missing};
 }
 
 function applyPlan(plan){
@@ -753,6 +769,7 @@ function applyPlan(plan){
     else data.positions.push({secid:r.id, name:r.meta.name, issuer:r.meta.issuer, cls:r.meta.cls, qty:r.to, ...(r.meta.unit ? {unit:r.meta.unit} : {})});
   }
   if (plan.cash){ data.cash = data.cash || {}; data.cash.broker = plan.cash.to; }
+  if (plan.hand){ data.cash = data.cash || {}; data.cash.hand = plan.hand.to; }
   data.broker = {at: plan.snap.at, items: plan.snap.items};
   save();
 }
@@ -768,7 +785,7 @@ function importCard(){
     <input type="file" id="shots" accept="image/*" multiple ${imp.busy ? "disabled" : ""}></label>`;
   if (imp.busy) h += `<p class="note" id="impMsg">${esc(imp.msg)}</p>`;
   else if (imp.msg) h += `<p class="check bad">${esc(imp.msg)}</p>`;
-  if (!imp.busy && !data.broker) h += `<div class="btns"><button class="btn ghost" type="button" id="snap2410">Применить счёт на ${BROKER_2410.at}</button></div>`;
+  if (!imp.busy && data.broker?.at !== LATEST.at) h += `<div class="btns"><button class="btn ghost" type="button" id="snapLatest">Применить счета на ${LATEST.at}</button></div>`;
   h += `<details class="more"><summary>Вставить список текстом</summary>
     <p class="note" style="margin:8px 0">Каждая строка: тикер и количество, рубли — строкой «RUB сумма». Например:<br>SBERP 24200<br>GLDRUB_TOM 44<br>RUB 558739.31</p>
     <textarea id="brokerTxt" aria-label="Позиции брокерского счёта"></textarea>
@@ -788,7 +805,7 @@ function planHtml(plan){
       : `Сумма позиций ${rub(sum)}, а итог счёта ${rub(s.total)}. Похоже, не все позиции распознались — проверьте список или добавьте скриншоты.`}</p>`;
   }
   if (s.unknown?.length) h += `<p class="check bad">Не узнал бумаги: ${s.unknown.map(u => `${esc(u.name)} (${fmtQ.format(u.qty)})`).join(", ")}. Их можно добавить вручную ниже.</p>`;
-  if (!plan.rows.length && !plan.cash && !plan.missing.length){
+  if (!plan.rows.length && !plan.cash && !plan.hand && !plan.missing.length){
     return h + `<p class="note">Всё уже совпадает, менять нечего.</p><div class="btns"><button class="btn ghost" type="button" id="impCancel">Закрыть</button></div>`;
   }
   const gone = plan.rows.filter(r => r.kind === "del" || (r.kind === "set" && r.to < r.from && !s.items[r.id])).length;
@@ -799,6 +816,7 @@ function planHtml(plan){
     h += `<div class="drow ${r.kind}"><span>${esc(r.name)}<br><small>${esc(r.id)}${r.kind === "add" ? " · новая позиция" : ""}</small></span><span class="chg num">${chg}</span></div>`;
   }
   if (plan.cash) h += `<div class="drow"><span>Рубли на брокерских счетах<br><small>${rub(s.cash)} здесь + ${rub(OTHER_CASH)} на других счетах</small></span><span class="chg num">${rub(plan.cash.from)} → ${rub(plan.cash.to)}</span></div>`;
+  if (plan.hand) h += `<div class="drow"><span>Наличные</span><span class="chg num">${rub(plan.hand.from)} → ${rub(plan.hand.to)}</span></div>`;
   h += `</div>`;
   if (plan.missing.length) h += `<p class="check bad">Не знаю, как добавить: ${plan.missing.map(esc).join(", ")}. Добавьте их вручную ниже.</p>`;
   h += `<div class="btns"><button class="btn" type="button" id="impApply">Применить</button><button class="btn ghost" type="button" id="impCancel">Отмена</button></div>`;
@@ -925,7 +943,7 @@ document.addEventListener("click", async e => {
   if (t.dataset.iss){ const n = t.dataset.iss; open.has(n) ? open.delete(n) : open.add(n); render(); return; }
   if (t.dataset.cls){ selCls = t.dataset.cls; render(); return; }
   if (t.id === "refreshBtn"){ refresh(); if (tab === "income") loadIncome(true); return; }
-  if (t.id === "snap2410"){ imp = {busy:false, msg:"", plan: planImport(BROKER_2410)}; render(); return; }
+  if (t.id === "snapLatest"){ imp = {busy:false, msg:"", plan: planImport(LATEST)}; render(); return; }
   if (t.id === "brokerTxtBtn"){
     const snap = parseBrokerText(document.getElementById("brokerTxt").value);
     if (!Object.keys(snap.items).length){ toast("Не нашёл ни одной строки «тикер количество»"); return; }
@@ -933,7 +951,7 @@ document.addEventListener("click", async e => {
   }
   if (t.id === "impCancel"){ imp = {busy:false, msg:"", plan:null}; render(); return; }
   if (t.id === "impApply"){
-    const n = imp.plan.rows.length + (imp.plan.cash ? 1 : 0);
+    const n = imp.plan.rows.length + (imp.plan.cash ? 1 : 0) + (imp.plan.hand ? 1 : 0);
     applyPlan(imp.plan); imp = {busy:false, msg:"", plan:null};
     render(); refresh(); toast(`Обновлено позиций: ${n}`); return;
   }
