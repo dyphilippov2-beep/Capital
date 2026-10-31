@@ -3,6 +3,7 @@ archive/
 .browser-profile/
 state/pc_posted.json
 pc_publish.log
+pc_publish_*.png
 client_secret.json
 youtube_token.json
 __pycache__/
