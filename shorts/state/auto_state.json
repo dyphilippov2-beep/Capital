@@ -5736,7 +5736,9 @@
       ],
       "id": "nsOVsfwoF74:123.7",
       "video_id": "nsOVsfwoF74",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11093"
+      },
       "fails": {}
     },
     {
