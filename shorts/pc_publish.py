@@ -32,8 +32,11 @@ POSTED = HERE / "state" / "pc_posted.json"
 LOG = HERE / "pc_publish.log"
 VK_GROUP = "titanhockeylab"
 VK_GROUP_ID = 201384871  # «Титан - лаборатория хоккея»; у пользователя есть и другие сообщества
+# Канал для шортсов в MAX (max.ru/join/GBaeEmx1FHM0uV-VKpkk24V4es8Sep9gxN55spwc6Qg) в веб-версии
+MAX_CHAT, MAX_TITLE = "https://web.max.ru/-70968141949580", "Лаборатория хоккея «Титан»"
+MAX_FAVORITES = "https://web.max.ru/0"
 RUTUBE_CHANNEL = 23890442  # «Лаборатория хоккея ТИТАН»; у пользователя есть и другой аккаунт Rutube
-LOGIN_URLS = ["https://vk.com/" + VK_GROUP, "https://rutube.ru/multipass/login/"]
+LOGIN_URLS = ["https://vk.com/" + VK_GROUP, "https://rutube.ru/multipass/login/", "https://web.max.ru/"]
 
 
 def log(msg):
@@ -184,7 +187,31 @@ def upload_rutube(page, clip, private):
     return f"{link} ({access})"
 
 
-UPLOADERS = {"vk": upload_vk, "rutube": upload_rutube}
+def upload_max(page, clip, private):
+    # Проверка уходит в «Избранное» (чат с самим собой): у каналов MAX нет режима «только для себя»
+    chat = MAX_FAVORITES if private else MAX_CHAT
+    page.goto(chat, wait_until="domcontentloaded", timeout=90000)
+    attach = page.get_by_role("button", name="Загрузить файл")
+    attach.wait_for(timeout=60000)
+    if not private:
+        # Тот ли канал: в шапке чата должно быть его название
+        page.get_by_text(MAX_TITLE, exact=True).first.wait_for(timeout=30000)
+    attach.click()
+    with page.expect_file_chooser() as chooser:
+        page.get_by_role("menuitem", name="Фото или видео").click()
+    chooser.value.set_files(str(archive_path(clip)))
+    page.get_by_role("button", name="Удалить вложение").wait_for(timeout=120000)
+    page.get_by_role("textbox").last.click()
+    page.keyboard.insert_text(f"{clip['title']}\n\n{publish.caption(clip, 'max')}")
+    page.get_by_role("button", name="Отправить сообщение").click()
+    # Ждём, пока видео загрузится и вложение исчезнет из поля ввода
+    page.get_by_role("button", name="Удалить вложение").wait_for(state="detached", timeout=600000)
+    page.wait_for_timeout(15000)
+    page.screenshot(path=str(LOG.with_name("pc_publish_max.png")))
+    return f"{chat} ({'Избранное' if private else 'канал ' + MAX_TITLE})"
+
+
+UPLOADERS = {"vk": upload_vk, "rutube": upload_rutube, "max": upload_max}
 
 
 # ---------- команды ----------
