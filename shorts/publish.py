@@ -26,6 +26,8 @@ OWN_HOST = {
     "rutube": ("rutube.ru/channel/23890442",),
 }
 FOOTER = HERE / "footer.txt"
+# Площадки, где под шортсом только ссылка на полное видео и описание, без блока соцсетей и хэштегов.
+SHORT_CAPTION = {"max"}
 BASE_TAGS = ["shorts", "хоккей"]
 
 
@@ -52,7 +54,10 @@ def caption(clip, platform=None):
         t = "#" + t.lstrip("#").replace(" ", "")
         if t.lower() not in [x.lower() for x in tags]:
             tags.append(t)
-    parts = (full_video_link(clip), clip.get("description", ""), footer(platform), " ".join(tags))
+    if platform in SHORT_CAPTION:
+        parts = (full_video_link(clip), clip.get("description", ""))
+    else:
+        parts = (full_video_link(clip), clip.get("description", ""), footer(platform), " ".join(tags))
     return "\n\n".join(p for p in parts if p)
 
 
