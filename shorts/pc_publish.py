@@ -202,7 +202,9 @@ def upload_max(page, clip, private):
     chooser.value.set_files(str(archive_path(clip)))
     page.get_by_role("button", name="Удалить вложение").wait_for(timeout=120000)
     page.get_by_role("textbox").last.click()
-    page.keyboard.insert_text(f"{clip['title']}\n\n{publish.caption(clip, 'max')}")
+    # В MAX без блока соцсетей и хэштегов: название, ссылка на полное видео, описание
+    parts = (clip["title"], publish.full_video_link(clip), clip.get("description", ""))
+    page.keyboard.insert_text("\n\n".join(p for p in parts if p))
     page.get_by_role("button", name="Отправить сообщение").click()
     # Ждём, пока видео загрузится и вложение исчезнет из поля ввода
     page.get_by_role("button", name="Удалить вложение").wait_for(state="detached", timeout=600000)
