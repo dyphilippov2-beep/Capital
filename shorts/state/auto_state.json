@@ -5285,7 +5285,9 @@
       ],
       "id": "lpWlhKcmYZk:517.4",
       "video_id": "lpWlhKcmYZk",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11092"
+      },
       "fails": {}
     },
     {
