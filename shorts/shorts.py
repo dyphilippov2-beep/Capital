@@ -68,7 +68,20 @@ def download_section(url, start, end, path):
 def render_from_source(clip, workdir, layout="blur", subs=True):
     """Рендер клипа, у которого есть только таймкоды и ссылка: качает кусок и делает mp4."""
     name = f"{slug(clip['title'])}_{int(clip['start'])}"
-    part = download_section(clip["source_url"], clip["start"], clip["end"], workdir / f"{name}_src.mp4")
+    # Видео, скачанное владельцем из YouTube Studio (output/<id>/source.mp4), режем на месте:
+    # YouTube иногда не отдаёт ролик yt-dlp («подтвердите, что вы не бот»)
+    local = HERE / "output" / clip.get("video_id", "") / "source.mp4"
+    if clip.get("video_id") and local.is_file():
+        part = workdir / f"{name}_src.mp4"
+        # delogo.txt рядом с source.mp4 («x:y:w:h») — убрать чужой водяной знак из исходника
+        logo = local.with_name("delogo.txt")
+        vf = ["-vf", "delogo=" + ":".join(f"{k}={v}" for k, v in zip("xywh", logo.read_text().split(":")))] \
+            if logo.is_file() else []
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{clip['start']:.2f}", "-to", f"{clip['end']:.2f}",
+                        "-i", str(local), *vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-c:a", "aac",
+                        str(part)], check=True)
+    else:
+        part = download_section(clip["source_url"], clip["start"], clip["end"], workdir / f"{name}_src.mp4")
     sub_path = None
     if subs and clip.get("words"):
         sub_path = workdir / f"{name}.ass"
