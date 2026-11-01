@@ -79,8 +79,21 @@ def save_posted(posted):
     POSTED.write_text(json.dumps(posted, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def next_clip(platform, posted):
-    for clip in queue():
+def series(vid):
+    """Отдельная серия одного видео (без Telegram): клипы из state/picks/<id>.json по порядку."""
+    import shorts
+
+    t = json.loads((HERE / "state" / "transcripts" / f"{vid}.json").read_text(encoding="utf-8"))
+    clips = []
+    for p in json.loads((HERE / "state" / "picks" / f"{vid}.json").read_text(encoding="utf-8")):
+        start, end = shorts.clip_bounds(t["sentences"], p["first"], p["last"], t["duration"])
+        clips.append({**p, "start": start, "end": end, "video_id": vid, "source_url": t["url"],
+                      "id": f"{vid}:{start:.1f}"})
+    return clips
+
+
+def next_clip(platform, posted, vid=None):
+    for clip in series(vid) if vid else queue():
         if platform not in posted.get(clip["id"], {}) and archive_path(clip).is_file():
             return clip
     return None
@@ -219,6 +232,41 @@ MONTHS_SHORT = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.
 YT_SLOTS = ("12:00", "18:00")  # выбор пользователя; 19:00 занято роликами «Титан Видео»
 
 
+def youtube_set_schedule(page, when):
+    """Блок «Запланировать публикацию»: дата и время, часовой пояс по умолчанию — местный (GMT+5)."""
+    page.get_by_text("Запланировать публикацию", exact=False).first.click()
+    page.locator("#datepicker-trigger").click()
+    date = page.locator("ytcp-date-picker input, tp-yt-paper-dialog input").locator("visible=true").last
+    date.fill(f"{when.day} {MONTHS_SHORT[when.month - 1]} {when.year} г.")
+    date.press("Enter")
+    time_input = page.locator("ytcp-datetime-picker input, #time-of-day-container input").locator("visible=true").first
+    time_input.fill(f"{when:%H:%M}")
+    time_input.press("Enter")
+    page.wait_for_timeout(1000)
+    shown = page.locator("#datepicker-trigger").inner_text().strip()
+    if not shown.startswith(f"{when.day} {MONTHS_SHORT[when.month - 1]}") or time_input.input_value() != f"{when:%H:%M}":
+        raise RuntimeError(f"YouTube: дата/время не встали ({shown} {time_input.input_value()}), не сохраняю")
+
+
+def youtube_reschedule(page, short_id, when):
+    """Переставляет время уже отложенного шортса на странице его сведений."""
+    page.goto(f"https://studio.youtube.com/video/{short_id}/edit", wait_until="domcontentloaded", timeout=90000)
+    page.locator("#linked-video-editor-link").wait_for(timeout=90000)
+    page.wait_for_timeout(3000)
+    page.get_by_text("Параметры доступа", exact=True).first.click()
+    youtube_set_schedule(page, when)
+    page.get_by_role("button", name=re.compile(r"^\s*(OK|ОК|Готово)\s*$")).last.click()
+    page.wait_for_timeout(1500)
+    page.get_by_role("button", name="Сохранить").first.click()
+    page.wait_for_timeout(5000)
+    page.reload(wait_until="domcontentloaded")
+    page.locator("#linked-video-editor-link").wait_for(timeout=90000)
+    page.wait_for_timeout(3000)
+    text = page.locator("body").inner_text()
+    if "Отложенная публикация" not in text:
+        raise RuntimeError(f"YouTube: после сохранения {short_id} не в отложенных")
+
+
 def upload_youtube(page, clip, private, when=None):
     """Загрузка шортса в YouTube Studio: private — «Ограниченный доступ», when — отложенная публикация."""
     page.goto(f"https://studio.youtube.com/channel/{YT_CHANNEL}", wait_until="domcontentloaded", timeout=90000)
@@ -236,19 +284,7 @@ def upload_youtube(page, clip, private, when=None):
         page.locator("#next-button").click()
         page.wait_for_timeout(1500)
     if when:
-        # Отложенная публикация: YouTube выпустит видео сам, часовой пояс по умолчанию — местный (GMT+5)
-        page.get_by_text("Запланировать публикацию", exact=False).first.click()
-        page.locator("#datepicker-trigger").click()
-        date = page.locator("ytcp-date-picker input, tp-yt-paper-dialog input").locator("visible=true").last
-        date.fill(f"{when.day} {MONTHS_SHORT[when.month - 1]} {when.year} г.")
-        date.press("Enter")
-        time_input = page.locator("ytcp-datetime-picker input, #time-of-day-container input").locator("visible=true").first
-        time_input.fill(f"{when:%H:%M}")
-        time_input.press("Enter")
-        page.wait_for_timeout(1000)
-        shown = page.locator("#datepicker-trigger").inner_text().strip()
-        if not shown.startswith(f"{when.day} {MONTHS_SHORT[when.month - 1]}"):
-            raise RuntimeError(f"YouTube: дата не встала ({shown}), не сохраняю")
+        youtube_set_schedule(page, when)
         state = f"отложен до {when:%d.%m.%Y %H:%M}"
     else:
         page.locator("tp-yt-paper-radio-button[name=PRIVATE]").click()
@@ -338,7 +374,7 @@ def cmd_post(args):
         ctx = browser(p, headless=args.headless)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         for platform in args.to.split(","):
-            clip = test or next_clip(platform, posted)
+            clip = test or next_clip(platform, posted, args.series)
             if not clip:
                 log(f"{platform}: нечего публиковать")
                 continue
@@ -392,6 +428,40 @@ def cmd_youtube_schedule(args):
         ctx.close()
 
 
+def cmd_youtube_series(args):
+    """Серия одного видео в YouTube: по одному клипу в день в --time с --start; уже загруженные переставляет."""
+    from playwright.sync_api import sync_playwright
+
+    posted = load_posted()
+    start = datetime.strptime(f"{args.start} {args.time}", "%d.%m.%Y %H:%M")
+    with sync_playwright() as p:
+        ctx = browser(p)  # YouTube Studio не работает в скрытом окне
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        for i, clip in enumerate(series(args.series)):
+            when = start + timedelta(days=i)
+            mark = posted.get(clip["id"], {}).get("youtube")
+            if mark and when.strftime("%d.%m.%Y %H:%M") in mark["link"]:
+                continue
+            try:
+                if mark:
+                    short_id = re.search(r"shorts/([\w-]+)", mark["link"]).group(1)
+                    log(f"youtube: «{clip['title']}» переставляю на {when:%d.%m.%Y %H:%M}")
+                    youtube_reschedule(page, short_id, when)
+                    link = f"https://youtube.com/shorts/{short_id} (отложен до {when:%d.%m.%Y %H:%M})"
+                else:
+                    log(f"youtube: «{clip['title']}» → {when:%d.%m.%Y %H:%M}")
+                    link = upload_youtube(page, clip, False, when)
+            except Exception as e:
+                page.screenshot(path=str(LOG.with_name("pc_publish_youtube_error.png")))
+                log(f"youtube: ОШИБКА {e} — останавливаюсь")
+                break
+            posted.setdefault(clip["id"], {})["youtube"] = {"at": f"{datetime.now():%Y-%m-%d %H:%M}",
+                                                           "link": link, "private": False}
+            save_posted(posted)
+            log(f"youtube: готово {link}")
+        ctx.close()
+
+
 def cmd_status(args):
     posted = load_posted()
     for clip in queue():
@@ -409,11 +479,17 @@ def main():
     p.add_argument("--private", action="store_true", help="только для себя (проверка)")
     p.add_argument("--headless", action="store_true", help="без окна браузера")
     p.add_argument("--test", metavar="ФАЙЛ", help="проверка: этот клип из archive, только для себя, без отметки")
+    p.add_argument("--series", metavar="ID_ВИДЕО", help="отдельная серия этого видео вместо общей очереди")
     p.set_defaults(func=cmd_post)
     p = sub.add_parser("youtube-schedule", help="загрузить всю очередь в YouTube с отложенной публикацией")
     p.add_argument("--start", required=True, metavar="ДД.ММ.ГГГГ", help="день первой публикации")
     p.add_argument("--limit", type=int, help="сколько клипов загрузить за этот запуск")
     p.set_defaults(func=cmd_youtube_schedule)
+    p = sub.add_parser("youtube-series", help="серия одного видео в YouTube: по клипу в день")
+    p.add_argument("--series", required=True, metavar="ID_ВИДЕО")
+    p.add_argument("--start", required=True, metavar="ДД.ММ.ГГГГ")
+    p.add_argument("--time", required=True, metavar="ЧЧ:ММ")
+    p.set_defaults(func=cmd_youtube_series)
     sub.add_parser("status", help="что выложено с ПК").set_defaults(func=cmd_status)
     args = ap.parse_args()
     args.func(args)
