@@ -36,7 +36,8 @@ VK_GROUP_ID = 201384871  # «Титан - лаборатория хоккея»;
 MAX_CHAT, MAX_TITLE = "https://web.max.ru/-70968141949580", "Лаборатория хоккея «Титан»"
 MAX_FAVORITES = "https://web.max.ru/0"
 RUTUBE_CHANNEL = 23890442  # «Лаборатория хоккея ТИТАН»; у пользователя есть и другой аккаунт Rutube
-LOGIN_URLS = ["https://vk.com/" + VK_GROUP, "https://rutube.ru/multipass/login/", "https://web.max.ru/"]
+LOGIN_URLS = ["https://vk.com/" + VK_GROUP, "https://rutube.ru/multipass/login/", "https://web.max.ru/",
+              "https://studio.youtube.com/"]
 
 
 def log(msg):
@@ -213,7 +214,97 @@ def upload_max(page, clip, private):
     return f"{chat} ({'Избранное' if private else 'канал ' + MAX_TITLE})"
 
 
-UPLOADERS = {"vk": upload_vk, "rutube": upload_rutube, "max": upload_max}
+YT_CHANNEL = "UC8p1uw85dvpBvRMxBbYFF1A"  # «Лаборатория хоккея ТИТАН» (@titanhl)
+MONTHS_SHORT = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек."]
+YT_SLOTS = ("12:00", "18:00")  # выбор пользователя; 19:00 занято роликами «Титан Видео»
+
+
+def upload_youtube(page, clip, private, when=None):
+    """Загрузка шортса в YouTube Studio: private — «Ограниченный доступ», when — отложенная публикация."""
+    page.goto(f"https://studio.youtube.com/channel/{YT_CHANNEL}", wait_until="domcontentloaded", timeout=90000)
+    page.get_by_role("button", name="Создать").first.click()
+    page.get_by_text("Добавить видео", exact=False).first.click()
+    page.locator("input[name=Filedata]").set_input_files(str(archive_path(clip)))
+    title = page.locator("#title-textarea #textbox")
+    title.wait_for(timeout=120000)
+    title.fill(re.sub(r"[<>]", "", clip["title"])[:100])
+    # Шаблон описания канала подставляется сам — заменяем его целиком нашим
+    page.locator("#description-textarea #textbox").fill(re.sub(r"[<>]", "", publish.caption(clip, "youtube"))[:5000])
+    page.locator("tp-yt-paper-radio-button[name=VIDEO_MADE_FOR_KIDS_NOT_MFK]").click()
+    link = page.locator("ytcp-video-info a, .video-url-fadeable a").first.inner_text().strip()
+    for _ in range(3):
+        page.locator("#next-button").click()
+        page.wait_for_timeout(1500)
+    if when:
+        # Отложенная публикация: YouTube выпустит видео сам, часовой пояс по умолчанию — местный (GMT+5)
+        page.get_by_text("Запланировать публикацию", exact=False).first.click()
+        page.locator("#datepicker-trigger").click()
+        date = page.locator("ytcp-date-picker input, tp-yt-paper-dialog input").locator("visible=true").last
+        date.fill(f"{when.day} {MONTHS_SHORT[when.month - 1]} {when.year} г.")
+        date.press("Enter")
+        time_input = page.locator("ytcp-datetime-picker input, #time-of-day-container input").locator("visible=true").first
+        time_input.fill(f"{when:%H:%M}")
+        time_input.press("Enter")
+        page.wait_for_timeout(1000)
+        shown = page.locator("#datepicker-trigger").inner_text().strip()
+        if not shown.startswith(f"{when.day} {MONTHS_SHORT[when.month - 1]}"):
+            raise RuntimeError(f"YouTube: дата не встала ({shown}), не сохраняю")
+        state = f"отложен до {when:%d.%m.%Y %H:%M}"
+    else:
+        page.locator("tp-yt-paper-radio-button[name=PRIVATE]").click()
+        state = "ограниченный доступ"
+    page.screenshot(path=str(LOG.with_name("pc_publish_youtube_access.png")))
+    # Сохранять только после полной загрузки файла: иначе уход со страницы оставляет недогруженный черновик
+    progress = page.locator("ytcp-video-upload-progress").first
+    deadline = time.time() + 900
+    while "Загружено" in progress.inner_text() and time.time() < deadline:
+        page.wait_for_timeout(3000)
+    page.locator("#done-button").click()
+    # «Проверка видео ещё продолжается» — подтверждаем
+    ok = page.get_by_role("button", name=re.compile(r"^\s*(OK|ОК)\s*$"))
+    try:
+        ok.last.click(timeout=15000)
+    except Exception:
+        pass
+    close = page.get_by_role("button", name="Закрыть", exact=True)
+    close.last.wait_for(timeout=120000)
+    page.screenshot(path=str(LOG.with_name("pc_publish_youtube.png")))
+    close.last.click()
+    short_id = link.rstrip("/").split("/")[-1]
+    try:
+        youtube_related(page, short_id, clip)
+    except Exception as e:  # видео уже стоит в расписании; «Видео по теме» можно добавить позже
+        log(f"youtube: «Видео по теме» не поставилось у {link}: {e}")
+        state += ", без «Видео по теме»"
+    return f"{link} ({state})"
+
+
+def source_title(clip):
+    t = HERE / "state" / "transcripts" / f"{clip['video_id']}.json"
+    return json.loads(t.read_text(encoding="utf-8"))["title"]
+
+
+def youtube_related(page, short_id, clip):
+    """«Видео по теме» у шортса — полное видео, из которого он нарезан: ссылка прямо в плеере Shorts."""
+    page.goto(f"https://studio.youtube.com/video/{short_id}/edit", wait_until="domcontentloaded", timeout=90000)
+    trigger = page.locator("#linked-video-editor-link")
+    trigger.wait_for(timeout=90000)
+    page.wait_for_timeout(3000)  # редактор дорисовывается, ранний клик теряется
+    trigger.click()
+    search = page.get_by_placeholder("Найти свои видео")
+    search.wait_for(timeout=60000)
+    title = source_title(clip)
+    search.fill(title[:60])
+    page.wait_for_timeout(4000)
+    card = page.locator("ytcp-dialog, tp-yt-paper-dialog").get_by_text(title[:25], exact=False).first
+    card.click()
+    page.wait_for_timeout(2000)
+    page.get_by_role("button", name="Сохранить").first.click()
+    page.wait_for_timeout(5000)
+    page.screenshot(path=str(LOG.with_name("pc_publish_youtube_related.png")))
+
+
+UPLOADERS = {"vk": upload_vk, "rutube": upload_rutube, "max": upload_max, "youtube": upload_youtube}
 
 
 # ---------- команды ----------
@@ -267,6 +358,40 @@ def cmd_post(args):
         ctx.close()
 
 
+def cmd_youtube_schedule(args):
+    """Разом загружает в YouTube все невыложенные клипы очереди с отложенной публикацией по слотам YT_SLOTS."""
+    from playwright.sync_api import sync_playwright
+
+    posted = load_posted()
+    clips = [c for c in queue() if "youtube" not in posted.get(c["id"], {}) and archive_path(c).is_file()]
+    if args.limit:
+        clips = clips[: args.limit]
+    day = datetime.strptime(args.start, "%d.%m.%Y")
+    # Слоты продолжаются после уже запланированных: повторный запуск не ставит два ролика в одно время
+    done = sum(1 for v in posted.values() if "youtube" in v)
+    slots = [datetime.combine(day.date() + timedelta(days=i // len(YT_SLOTS)),
+                              datetime.strptime(YT_SLOTS[i % len(YT_SLOTS)], "%H:%M").time())
+             for i in range(done, done + len(clips))]
+    log(f"youtube: к загрузке {len(clips)}, с {slots[0]:%d.%m %H:%M} по {slots[-1]:%d.%m %H:%M}" if clips else
+        "youtube: нечего загружать")
+    with sync_playwright() as p:
+        ctx = browser(p)  # YouTube Studio не работает в скрытом окне
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        for clip, when in zip(clips, slots):
+            log(f"youtube: «{clip['title']}» → {when:%d.%m.%Y %H:%M}")
+            try:
+                link = upload_youtube(page, clip, False, when)
+            except Exception as e:
+                page.screenshot(path=str(LOG.with_name("pc_publish_youtube_error.png")))
+                log(f"youtube: ОШИБКА {e} — останавливаюсь, чтобы не сбить расписание")
+                break
+            posted.setdefault(clip["id"], {})["youtube"] = {"at": f"{datetime.now():%Y-%m-%d %H:%M}",
+                                                           "link": link, "private": False}
+            save_posted(posted)
+            log(f"youtube: готово {link}")
+        ctx.close()
+
+
 def cmd_status(args):
     posted = load_posted()
     for clip in queue():
@@ -285,6 +410,10 @@ def main():
     p.add_argument("--headless", action="store_true", help="без окна браузера")
     p.add_argument("--test", metavar="ФАЙЛ", help="проверка: этот клип из archive, только для себя, без отметки")
     p.set_defaults(func=cmd_post)
+    p = sub.add_parser("youtube-schedule", help="загрузить всю очередь в YouTube с отложенной публикацией")
+    p.add_argument("--start", required=True, metavar="ДД.ММ.ГГГГ", help="день первой публикации")
+    p.add_argument("--limit", type=int, help="сколько клипов загрузить за этот запуск")
+    p.set_defaults(func=cmd_youtube_schedule)
     sub.add_parser("status", help="что выложено с ПК").set_defaults(func=cmd_status)
     args = ap.parse_args()
     args.func(args)
