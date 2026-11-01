@@ -6102,7 +6102,9 @@
       ],
       "id": "sA2BKj8EQLM:35.9",
       "video_id": "sA2BKj8EQLM",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11096"
+      },
       "fails": {}
     },
     {
