@@ -7044,7 +7044,9 @@
       ],
       "id": "IEn8t1L6kFU:291.6",
       "video_id": "IEn8t1L6kFU",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11101"
+      },
       "fails": {}
     },
     {
