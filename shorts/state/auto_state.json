@@ -7330,7 +7330,9 @@
       ],
       "id": "XWd2OV6L3n0:267.4",
       "video_id": "XWd2OV6L3n0",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11102"
+      },
       "fails": {}
     },
     {
