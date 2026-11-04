@@ -9705,7 +9705,9 @@
       ],
       "id": "sA2BKj8EQLM:116.8",
       "video_id": "sA2BKj8EQLM",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11115"
+      },
       "fails": {}
     },
     {
