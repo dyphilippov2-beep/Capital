@@ -10121,7 +10121,9 @@
       ],
       "id": "yVlSe-KijUU:581.9",
       "video_id": "yVlSe-KijUU",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11118"
+      },
       "fails": {}
     },
     {
