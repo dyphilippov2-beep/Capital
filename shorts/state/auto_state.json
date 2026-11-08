@@ -12417,7 +12417,9 @@
       ],
       "id": "sA2BKj8EQLM:277.5",
       "video_id": "sA2BKj8EQLM",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11139"
+      },
       "fails": {}
     },
     {
