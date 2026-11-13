@@ -17468,7 +17468,9 @@
       ],
       "id": "fv5PgiZfEpU:281.6",
       "video_id": "fv5PgiZfEpU",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11157"
+      },
       "fails": {}
     },
     {
