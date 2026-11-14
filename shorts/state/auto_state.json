@@ -18120,7 +18120,9 @@
       ],
       "id": "nsOVsfwoF74:225.0",
       "video_id": "nsOVsfwoF74",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11159"
+      },
       "fails": {}
     },
     {
