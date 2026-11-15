@@ -18772,7 +18772,9 @@
       ],
       "id": "IEn8t1L6kFU:187.0",
       "video_id": "IEn8t1L6kFU",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11165"
+      },
       "fails": {}
     },
     {
