@@ -18451,7 +18451,9 @@
       ],
       "id": "sA2BKj8EQLM:454.6",
       "video_id": "sA2BKj8EQLM",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11164"
+      },
       "fails": {}
     },
     {
