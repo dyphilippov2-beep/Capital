@@ -20822,7 +20822,9 @@
       ],
       "id": "XWd2OV6L3n0:857.2",
       "video_id": "XWd2OV6L3n0",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11179"
+      },
       "fails": {}
     },
     {
