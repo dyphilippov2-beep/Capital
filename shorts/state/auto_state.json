@@ -21158,7 +21158,9 @@
       ],
       "id": "nsOVsfwoF74:1234.8",
       "video_id": "nsOVsfwoF74",
-      "posted": {},
+      "posted": {
+        "telegram": "telegram message 11181"
+      },
       "fails": {}
     },
     {
